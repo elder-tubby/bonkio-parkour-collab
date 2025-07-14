@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <title>Parkour Collab</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Lexend", sans-serif;
+        background: #121212;
+        color: #eee;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      /* Two-column layout for home screen */
+      #homeScreen {
+        width: 800px;
+        display: flex;
+        gap: 2rem;
+        background: #1f1f1f;
+        padding: 2rem;
+        border-radius: 10px;
+      }
+      .column {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .box {
+        background: #222;
+        padding: 1rem;
+        border-radius: 8px;
+      }
+
+      /* Explanatory text styling */
+      .info-box p,
+      .info-box ol,
+      .info-box ul {
+        margin-bottom: 0.8rem;
+        line-height: 1.4;
+      }
+
+      /* Controls styling */
+      .controls-box input[type="text"] {
+        margin-top: 1rem;
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: 1px solid #444;
+        background: #1e1e1e;
+        color: #eee;
+        width: 100%;
+      }
+      .controls-box button,
+      .controls-box input[type="checkbox"] {
+        cursor: pointer;
+      }
+      .controls-box button {
+        padding: 0.6rem 1.2rem;
+        background: #333;
+        color: #eee;
+        border: none;
+        border-radius: 5px;
+        font-weight: 600;
+        margin-top: 0.6rem;
+      }
+      .inline-check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.8rem;
+      }
+      #readyList {
+        list-style: none;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      #readyList li {
+        display: grid;
+        grid-template-columns: 1fr 100px;
+        border-bottom: 1px solid #333;
+        padding: 0.4rem 0;
+      }
+
+      /* Canvas layout */
+      #canvasWrapper {
+        display: none;
+        width: 100vw;
+        height: 100vh;
+      }
+      .main-panel {
+        display: flex;
+        height: 100%;
+        width: 100%;
+      }
+      .sidebar {
+        width: 320px;
+        background: #1f1f1f;
+        padding: 1rem;
+        border-right: 2px solid #333;
+      }
+      .box {
+        background: #222;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+      }
+      .box h3 {
+        margin-bottom: 0.6rem;
+        color: #aaa;
+        font-size: 1rem;
+      }
+
+      /* Legend and player list */
+      .two-col-list {
+        list-style: none;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .two-col-list li {
+        display: grid;
+        grid-template-columns: 200 px auto;
+        border-bottom: 1px solid #333;
+        padding: 0.4rem 0;
+        font-size: 0.9rem;
+      }
+      .status-green {
+        color: #00e676;
+        font-weight: 600;
+      }
+      .status-yellow {
+        color: #ffeb3b;
+        font-weight: 600;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-top: 0.5rem;
+      }
+      .color-box {
+        width: 18px;
+        height: 18px;
+        margin-right: 0.5rem;
+        border: 1px solid #888;
+      }
+      .white {
+        background: white;
+      }
+      .red {
+        background: red;
+      }
+
+      .canvas-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 0;
+      }
+      canvas {
+        background: #1e1e1e;
+        border: 2px solid #444;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      }
+
+      .control-box {
+        background: #222;
+        padding: 1rem;
+        margin-top: 1.5rem;
+        border-radius: 8px;
+        width: 600px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      #timer {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      /* Cap zone drawing aid */
+      .cap-zone-label {
+        font-size: 0.8rem;
+        color: #fff;
+        padding: 4px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 4px;
+        position: absolute;
+        z-index: 2;
+      }
+
+      .vote-row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-size: 1rem;
+        font-weight: 400;
+        margin-bottom: 0.6rem;
+      }
+
+      body,
+      button,
+      label {
+        font-family: "Lexend", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      .popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 999;
+      }
+
+      .popup-box {
+        position: relative; /* <--- Add this */
+        background: #1f1f1f;
+        padding: 2rem;
+        border-radius: 10px;
+        text-align: center;
+        width: 400px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        font-family: "Lexend", sans-serif;
+      }
+
+      .popup-box h2 {
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+      }
+
+      .popup-box p {
+        margin-bottom: 1.5rem;
+      }
+
+      .popup-close {
+        position: absolute;
+        top: 10px; /* adjust as needed */
+        right: 10px; /* adjust as needed */
+        background: none;
+        color: #fff;
+        font-size: 1.2rem;
+        border: none;
+        cursor: pointer;
+      }
+
+      .chat-box {
+        width: 300px;
+        background: #1f1f1f;
+        padding: 1rem;
+        border-left: 2px solid #333;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      #chatMessages {
+        flex: 1;
+        background: #222;
+        padding: 0.5rem;
+        border-radius: 6px;
+        overflow-y: auto;
+        max-height: 400px;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+      }
+
+      #chatMessages p {
+        margin: 0.3rem 0;
+        word-wrap: break-word;
+      }
+
+      #chatInput {
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: 1px solid #444;
+        background: #1e1e1e;
+        color: #eee;
+        margin-bottom: 0.5rem;
+      }
+
+      #chatSendBtn {
+        padding: 0.5rem;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        background: #333;
+        color: #eee;
+        border: none;
+        border-radius: 5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      button:hover {
+        background: #444;
+      }
+      #lineTypeSelect {
+        padding: 0.6rem; /* ⬅️ Extra space on right for arrow */
+        background: #333;
+        color: #eee;
+        border: none;
+        border-radius: 5px;
+        font-family: "Lexend", sans-serif;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        margin-top: 0.6rem;
+      }
+
+      #lineTypeSelect:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      ::placeholder {
+        font-family: "Lexend", sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Home Screen -->
+    <div id="homeScreen">
+      <!-- Left column: explanatory text -->
+      <div class="column">
+        <div class="box info-box">
+          <h2>Welcome!</h2>
+          <ul style="margin-top: 1.4rem; padding-left: 1.2rem">
+            <li style="margin-bottom: 0.4rem">
+              This is an app to collaborate on bonk.io parkour maps.
+            </li>
+            <li style="margin-bottom: 0.4rem">
+              Draw lines on a shared canvas.
+            </li>
+            <li style="margin-bottom: 0.4rem">
+              To copy the final map, use the <em>pkrGenerator</em> mod by
+              eldertubby.
+            </li>
+            <li style="margin-bottom: 0.4rem">
+              The map data is also compatible with the parkour generator app.
+            </li>
+            <li style="margin-bottom: 0.4rem">
+              All code is available on elder-tubby's GitHub.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Right column: controls and lobby -->
+      <div class="column">
+        <div class="box controls-box">
+          <input
+            type="text"
+            id="usernameInput"
+            placeholder="Your username"
+            autocomplete="off"
+            maxlength="26"
+          />
+          <button id="joinBtn">Join Lobby</button>
+          <div class="inline-check">
+            <input type="checkbox" id="readyCheckbox" />
+            <label for="readyCheckbox">Ready</label>
+          </div>
+          <p style="font-size: 14px; margin-top: 1rem">
+            Drawing will start when 2 players are ready.
+          </p>
+          <p
+            id="lobbyMessage"
+            style="
+              color: #d2691e;
+              font-size: 14px;
+              margin-top: 0.5rem;
+              display: none;
+            "
+          >
+            A game is already in progress. Please wait for the next round.
+          </p>
+        </div>
+        <div class="box">
+          <h3>Lobby Players</h3>
+          <ul id="readyList"></ul>
+        </div>
+      </div>
+    </div>
+    <!-- Drawing Area -->
+    <div id="canvasWrapper">
+      <div class="main-panel">
+        <div class="sidebar">
+          <div class="box">
+            <h3>Players</h3>
+            <ul class="two-col-list" id="playerList"></ul>
+          </div>
+
+          <div class="box">
+            <div class="vote-row">
+              <label for="voteCheckbox">Vote to Finish</label>
+              <input type="checkbox" id="voteCheckbox" />
+            </div>
+            <div id="voteStatus">0 / 0 voted</div>
+          </div>
+
+          <div class="box">
+            <h3>Tip</h3>
+            <ul
+              style="line-height: 1.6; font-size: 0.95rem; padding-left: 1.2rem"
+            >
+              <li>Use jumper for scale (<strong>hold S</strong>).</li>
+              <li>Click on a line to select it.</li>
+              <li>
+                Use hotkeys for editing:
+                <ul style="margin-top: 0.4rem; padding-left: 1.2rem">
+                  <li><strong>B</strong> – Bouncy</li>
+                  <li><strong>D</strong> – Death</li>
+                  <li><strong>N</strong> – Non-bouncy</li>
+                  <li><strong>X</strong> – Delete</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="canvas-area">
+          <canvas id="canvas" width="650" height="445.2"></canvas>
+
+          <div class="control-box">
+            <div id="status">Draw your line...</div>
+            <button id="deleteLineBtn" disabled>Delete Selected Line</button>
+            <select id="lineTypeSelect" disabled>
+              <option value="none">None</option>
+              <option value="bouncy">Bouncy</option>
+              <option value="death">Death</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="chat-box">
+          <h3>Chat</h3>
+          <div id="chatMessages"></div>
+          <input
+            type="text"
+            id="chatInput"
+            placeholder="Type a message..."
+            autocomplete="off"
+          />
+          <button id="chatSendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game End Popup (no inline onclick) -->
+    <div id="gameEndPopup" style="display: none" class="popup-overlay">
+      <div class="popup-box">
+        <button id="popup-close" class="popup-close">×</button>
+        <h2>Game ended</h2>
+        <p>Would you like to copy lines info?</p>
+        <button id="copyLineInfoBtn">Copy Line Info</button>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
