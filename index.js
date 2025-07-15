@@ -95,6 +95,8 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(config.PORT, () => {
-  console.log(`Listening on http://localhost:${config.PORT}`);
+const PORT = process.env.PORT || config.PORT;
+
+server.listen(PORT, () => {
+  console.log(`Listening on http://localhost:${PORT}`);
 });

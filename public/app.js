@@ -40,7 +40,7 @@ function init() {
     UI.setVote(votes, players.length);
   });
   Network.onPlayerLine(({ id, playerId, line, username }) => {
-    const { start, end } = line; // ← extract start/end here
+    const { start, end } = line; 
     const lines = State.get("lines");
 
     State.set("lines", [
@@ -76,7 +76,6 @@ function init() {
   });
 
   Network.onLineDeleted(({ id }) => {
-    // remove from state
     const lines = State.get("lines").filter((l) => l.id !== id);
     State.set("lines", lines);
     // if we deleted our selected line, clear selection
