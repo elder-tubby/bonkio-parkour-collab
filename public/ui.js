@@ -21,6 +21,7 @@ const SELECTORS = {
   lobbyMessage: '#lobbyMessage',
   deleteLineBtn: '#deleteLineBtn',
   lineTypeSelect: '#lineTypeSelect',
+  hideUsernamesCheckbox: '#hideUsernamesCheckbox',
 };
 
 class UI {

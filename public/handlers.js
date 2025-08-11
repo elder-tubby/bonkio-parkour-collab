@@ -6,6 +6,7 @@ import Canvas from "./canvas.js"; // ← add this
 import { copyLineInfo } from "./exportLines.js"; // <-- ensure this path is correct
 import { getHitLineId } from "./utils-client.js";
 import { updateLineTypeUI } from "./utils-client.js";
+import { handleUndoLastLine } from "./utils-client.js";
 import { emitSpawnCircleMove } from "./network.js";
 import { emitCapZoneMove } from "./network.js";
 
@@ -97,12 +98,18 @@ export function handleEnterKey(onSubmit) {
   };
 }
 
+export function handleHideUsernamesToggle(ev) {
+  State.set("hideUsernames", ev.target.checked);
+  Canvas.draw(); // redraw immediately with or without usernames
+}
+
 export function bindUIEvents() {
   const e = UI.elems;
   e.joinBtn.addEventListener("click", handleJoin);
   e.usernameInput.addEventListener("keydown", handleEnterKey(handleJoin));
   e.readyCheckbox.addEventListener("change", handleReadyToggle);
   e.voteCheckbox.addEventListener("change", handleVoteToggle);
+  e.hideUsernamesCheckbox.addEventListener("change", handleHideUsernamesToggle);
   e.deleteLineBtn.addEventListener("click", handleDeleteLine);
   e.lineTypeSelect.addEventListener("change", handleLineTypeChange);
   e.chatSendBtn.addEventListener("click", handleSendChat);
@@ -207,11 +214,33 @@ export function bindUIEvents() {
 }
 
 export function handleKeyCommands(ev) {
+  const key = ev.key.toLowerCase();
+
+  // Global hotkeys (not dependent on a selected line)
+  if (key === "h") {
+    const current = State.get("hideUsernames");
+    State.set("hideUsernames", !current);
+    UI.elems.hideUsernamesCheckbox.checked = !current;
+    Canvas.draw();
+    return; // stop here so 'h' doesn't get processed below
+  }
+
+  const isCtrlZ = ev.ctrlKey && (ev.key === "z" || ev.key === "Z");
+
+  if (isCtrlZ) {
+    ev.preventDefault(); // prevent browser undo
+    handleUndoLastLine();
+    return;
+  }
+
+  if (key === "c") {
+    copyLineInfo(State.get("lines"));
+    return;
+  }
   // only act if we have a selected line
   const lineId = State.get("selectedLineId");
   if (!lineId) return;
 
-  const key = ev.key.toLowerCase();
   switch (key) {
     case "b":
       // toggle to bouncy

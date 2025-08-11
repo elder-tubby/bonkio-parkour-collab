@@ -6,6 +6,7 @@ import Canvas from "./canvas.js";
 import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
 import { updateLineTypeUI } from "./utils-client.js";
+import { showToast } from "./utils-client.js"; 
 
 function init() {
   UI.init();
@@ -34,17 +35,18 @@ function init() {
     UI.setStatus("Draw by dragging on canvas");
 
     const { width, height } = UI.elems.canvas;
+    const { diameter: spawnDiameter } = State.get("spawnCircle");
     State.set("spawnCircle", {
       x: width / 2,
       y: height / 2,
-      diameter: 18,
+      diameter: spawnDiameter,
       dragging: false,
     });
 
     const { width: czW, height: czH } = State.get("capZone");
     State.set("capZone", {
       x: width / 2 - czW / 2,
-      y: height / 2 - czH / 2,
+      y: height / 2 - czH / 2 - spawnDiameter - 5,
       width: czW,
       height: czH,
       dragging: false,
@@ -102,10 +104,19 @@ function init() {
       },
     ]);
 
+    // Auto-select if it's our own line
+    if (playerId === State.get("playerId")) {
+      State.set("selectedLineId", id);
+    }
+
     Canvas.draw();
   });
 
   Network.onChatMessage((msg) => UI.appendChat(msg));
+
+  Network.onChatError(({ reason }) => {
+    showToast(reason); // or better: UI.showLobbyMessage(reason) for a few seconds
+  });
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
     UI.hide("lobbyMessage");
@@ -138,6 +149,7 @@ function init() {
       l.id === id ? { ...l, type } : l,
     );
     State.set("lines", updated);
+    Canvas.draw();
   });
 
   Network.onSpawnCircleMove(({ x, y }) => {

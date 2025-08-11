@@ -1,4 +1,5 @@
 import State from "./state.js";
+import { showToast } from "./utils-client.js"; 
 
 export function copyLineInfo(lines) {
   const cz = State.get("capZone");
@@ -84,7 +85,7 @@ export function copyLineInfo(lines) {
       case "bouncy":
         isBouncy = true;
         bounciness = null;
-        color = 9079434;
+        color = 10994878;
         break;
       case "death":
         isDeath = true;
@@ -126,30 +127,7 @@ export function copyLineInfo(lines) {
     .catch((e) => showToast("Copy failed: " + e));
 }
 
-function showToast(message) {
-  const toast = document.createElement("div");
-  toast.textContent = message;
-  Object.assign(toast.style, {
-    position: "fixed",
-    bottom: "1rem",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "#333",
-    color: "#fff",
-    padding: "0.6rem 1rem",
-    borderRadius: "5px",
-    fontSize: "0.9rem",
-    zIndex: 1000,
-    opacity: 0,
-    transition: "opacity 0.3s ease",
-  });
-  document.body.appendChild(toast);
-  requestAnimationFrame(() => (toast.style.opacity = 1));
-  setTimeout(() => {
-    toast.style.opacity = 0;
-    toast.addEventListener("transitionend", () => toast.remove());
-  }, 2000);
-}
+
 
 function gameToExternal(gameX, gameY) {
   const GW = canvas.width; // 650

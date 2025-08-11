@@ -183,7 +183,7 @@
         padding: 1rem;
         margin-top: 1.5rem;
         border-radius: 8px;
-        width: 600px;
+        width: 650px;
         text-align: center;
         display: flex;
         flex-direction: column;
@@ -206,17 +206,22 @@
         z-index: 2;
       }
 
-      .vote-row {
+      .vote-row,
+      .hide-usernames-row {
         display: flex;
         align-items: center;
         gap: 0.6rem;
         font-size: 1rem;
         font-weight: 400;
-        margin-bottom: 0.6rem;
+        margin-bottom: 1rem; /* consistent spacing between rows */
       }
 
-      #copyMapBtn {
-        margin-top: 0.8rem; /* space above the button */
+      #voteStatus {
+        margin-bottom: 1rem; /* match row spacing */
+      }
+
+      .copy-map-row {
+        margin-top: 0.8rem;
       }
 
       body,
@@ -424,8 +429,17 @@
               <label for="voteCheckbox">Vote to Finish</label>
               <input type="checkbox" id="voteCheckbox" />
             </div>
+
             <div id="voteStatus">0 / 0 voted</div>
-            <div><button id="copyMapBtn">Copy Map Data</button></div>
+
+            <div class="hide-usernames-row">
+              <label for="hideUsernamesCheckbox">Hide usernames (H)</label>
+              <input type="checkbox" id="hideUsernamesCheckbox" />
+            </div>
+
+            <div class="copy-map-row">
+              <button id="copyMapBtn">Copy Map Data (C)</button>
+            </div>
           </div>
 
           <div class="box">
@@ -441,6 +455,7 @@
                   <li><strong>D</strong> – Death</li>
                   <li><strong>N</strong> – Non-bouncy</li>
                   <li><strong>X</strong> – Delete</li>
+                  <li><strong>CTRL Z</strong> – Delete last line</li>
                 </ul>
               </li>
             </ul>
@@ -452,7 +467,7 @@
 
           <div class="control-box">
             <div id="status">Draw your line...</div>
-            <button id="deleteLineBtn" disabled>Delete Selected Line</button>
+            <button id="deleteLineBtn" disabled>Delete Line</button>
             <select id="lineTypeSelect" disabled>
               <option value="none">None</option>
               <option value="bouncy">Bouncy</option>
@@ -481,7 +496,7 @@
         <button id="popup-close" class="popup-close">×</button>
         <h2>Game ended</h2>
         <p>Would you like to copy map data?</p>
-        <button id="copyLineInfoBtn">Copy map data</button>
+        <button id="copyLineInfoBtn">Copy map data (C)</button>
       </div>
     </div>
 

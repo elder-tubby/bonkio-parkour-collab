@@ -26,7 +26,8 @@ class State {
       mouse: { x: 0, y: 0 },
       isHoldingS: false,
       spawnCircle: { x: 0, y: 0, diameter: 18, dragging: false },
-      capZone: { x: 0, y: 0, width: 20, height: 12.4, dragging: false }
+      capZone: { x: 0, y: 0, width: 20, height: 12.4, dragging: false },
+      hideUsernames: false,
     };
     this.emitter = new Emitter();
   }

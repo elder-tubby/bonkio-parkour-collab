@@ -37,6 +37,13 @@ const EVENTS = {
   LINE_TYPE_CHANGED: "lineTypeChanged",
 };
 
+const MESSAGE_LIMIT = 5; // max messages
+const MAX_MSG_LENGTH = 2000; // characters
+const MESSAGE_WINDOW = 10 * 1000; // ms
+
+// We'll store message timestamps in memory
+const messageHistory = new Map(); // socket.id -> [timestamps]
+
 io.on("connection", (socket) => {
   // If a round is already in-flight, let them know immediately
   if (game.active) {
@@ -80,10 +87,36 @@ io.on("connection", (socket) => {
 
   socket.on(EVENTS.CHAT_MESSAGE, (msg) => {
     const player = lobby.players[socket.id];
-    if (player && typeof msg === "string") {
-      io.emit(EVENTS.CHAT_MESSAGE, { name: player.name, message: msg });
+    if (!player || typeof msg !== "string") return;
+
+    // length check
+    if (msg.length > MAX_MSG_LENGTH) {
+      socket.emit("chatError", { reason: `Message too long (max ${MAX_MSG_LENGTH} chars)` });
+      return;
     }
+
+    // rate limit check
+    const now = Date.now();
+    if (!messageHistory.has(socket.id)) {
+      messageHistory.set(socket.id, []);
+    }
+    const history = messageHistory.get(socket.id);
+
+    // remove timestamps older than the window
+    while (history.length && now - history[0] > MESSAGE_WINDOW) {
+      history.shift();
+    }
+
+    if (history.length >= MESSAGE_LIMIT) {
+      socket.emit("chatError", { reason: `You are sending messages too quickly. Please wait.` });
+      return;
+    }
+
+    // record timestamp & send
+    history.push(now);
+    io.emit(EVENTS.CHAT_MESSAGE, { name: player.name, message: msg });
   });
+
 
   socket.on(EVENTS.DISCONNECT, () => {
     lobby.removePlayer(socket.id);
@@ -101,7 +134,6 @@ io.on("connection", (socket) => {
   socket.on("capZoneMove", ({ x, y }) => {
     io.emit("capZoneMove", { x, y });
   });
-  
 });
 
 const PORT = process.env.PORT || config.PORT;

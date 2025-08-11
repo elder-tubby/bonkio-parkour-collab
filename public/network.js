@@ -91,3 +91,7 @@ export function emitCapZoneMove(x, y) {
 export function onCapZoneMove(cb) {
   socket.on("capZoneMove", cb);
 }
+
+export function onChatError(cb) {
+  socket.on("chatError", cb);
+}

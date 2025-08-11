@@ -19,33 +19,40 @@ class Canvas {
     State.get("lines").forEach(({ id, start, end, username, type }) => {
       const isSelected = id === State.get("selectedLineId");
 
-      // 1) if selected → yellow
-      // 2) else if death  → white
-      // 3) else if bouncy → gray
-      // 4) else           → red
+      // Determine base color
+      let baseColor = "white";
+      if (type === "death") baseColor = "red";
+      else if (type === "bouncy")
+        baseColor = `rgb(${(10994878 >> 16) & 0xff}, ${(10994878 >> 8) & 0xff}, ${10994878 & 0xff})`;
+
       if (isSelected) {
-        ctx.strokeStyle = "yellow";
-        // ctx.fillStyle   = 'yellow';
+        // Outer yellow highlight
         ctx.lineWidth = 6;
+        ctx.strokeStyle = "yellow";
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+
+        // Inner line with original color
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = baseColor;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
       } else {
-        ctx.lineWidth = 4.452;
-        if (type === "death") {
-          ctx.strokeStyle = "red";
-          ctx.fillStyle = "red";
-        } else if (type === "bouncy") {
-          ctx.strokeStyle = "gray";
-          ctx.fillStyle = "gray";
-        } else {
-          ctx.strokeStyle = "white";
-          ctx.fillStyle = "white";
-        }
+        // Normal line
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = baseColor;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
       }
 
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
-      if (username) {
+      // Username label
+      if (username && !State.get("hideUsernames")) {
         ctx.fillStyle = isSelected ? "yellow" : "white";
         ctx.fillText(username, start.x + 5, start.y - 5);
       }
@@ -54,24 +61,23 @@ class Canvas {
     // Draw shared spawn circle
     const { x, y, diameter } = State.get("spawnCircle");
     ctx.beginPath();
-    ctx.arc(x, y, diameter / 2, 0, 2 * Math.PI);
-    ctx.strokeStyle = "orange";
+    ctx.arc(x, y, diameter / 2 - 2, 0, 2 * Math.PI);
+    ctx.strokeStyle = "limegreen";
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Label below circle
-    ctx.fillStyle = "orange";
+    ctx.fillStyle = "limegreen";
     ctx.font = "9px Lexend";
     ctx.textAlign = "center";
-    ctx.fillText("spawn", x, y + diameter / 2 + 12);
+    ctx.fillText("spawn", x, y + diameter / 2 + 8);
 
     const { x: czX, y: czY, width: czW, height: czH } = State.get("capZone");
     ctx.strokeStyle = "yellow";
     ctx.fillStyle = "yellow";
     ctx.lineWidth = 2;
     ctx.strokeRect(czX, czY, czW, czH);
-    ctx.fillText("CZ", czX + czW / 2 - 8, czY + czH / 2 + 5);
-
+    ctx.fillText("CZ", czX + czW / 2, czY + czH / 2 + 3);
   }
 }
 
