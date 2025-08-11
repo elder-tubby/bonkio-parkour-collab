@@ -215,6 +215,10 @@
         margin-bottom: 0.6rem;
       }
 
+      #copyMapBtn {
+        margin-top: 0.8rem; /* space above the button */
+      }
+
       body,
       button,
       label {
@@ -421,6 +425,7 @@
               <input type="checkbox" id="voteCheckbox" />
             </div>
             <div id="voteStatus">0 / 0 voted</div>
+            <div><button id="copyMapBtn">Copy Map Data</button></div>
           </div>
 
           <div class="box">
@@ -428,7 +433,6 @@
             <ul
               style="line-height: 1.6; font-size: 0.95rem; padding-left: 1.2rem"
             >
-              <li>Use jumper for scale (<strong>hold S</strong>).</li>
               <li>Click on a line to select it.</li>
               <li>
                 Use hotkeys for editing:
@@ -476,8 +480,8 @@
       <div class="popup-box">
         <button id="popup-close" class="popup-close">×</button>
         <h2>Game ended</h2>
-        <p>Would you like to copy lines info?</p>
-        <button id="copyLineInfoBtn">Copy Line Info</button>
+        <p>Would you like to copy map data?</p>
+        <button id="copyLineInfoBtn">Copy map data</button>
       </div>
     </div>
 

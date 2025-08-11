@@ -21,11 +21,12 @@ class State {
       username: '',
       startPt: null,
       lines: [],
-      capZone: null,
       gameActive: false,
       selectedLineId: null,
       mouse: { x: 0, y: 0 },
-      isHoldingS: false
+      isHoldingS: false,
+      spawnCircle: { x: 0, y: 0, diameter: 18, dragging: false },
+      capZone: { x: 0, y: 0, width: 20, height: 12.4, dragging: false }
     };
     this.emitter = new Emitter();
   }

@@ -93,6 +93,15 @@ io.on("connection", (socket) => {
   socket.on(EVENTS.CHANGE_LINE_TYPE, (payload) => {
     game.changeLineType(socket.id, payload.id, payload.type);
   });
+
+  socket.on("spawnCircleMove", ({ x, y }) => {
+    io.emit("spawnCircleMove", { x, y });
+  });
+
+  socket.on("capZoneMove", ({ x, y }) => {
+    io.emit("capZoneMove", { x, y });
+  });
+  
 });
 
 const PORT = process.env.PORT || config.PORT;

@@ -7,7 +7,6 @@ import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
 import { updateLineTypeUI } from "./utils-client.js";
 
-
 function init() {
   UI.init();
   bindUIEvents();
@@ -24,23 +23,71 @@ function init() {
     if (!State.get("gameActive")) UI.show("home");
     UI.updateLobby(players);
   });
+
   Network.onStartGame(({ capZone, players }) => {
     State.set("gameActive", true);
-    State.set("capZone", capZone);
     State.set("lines", []);
     UI.hide("lobbyMessage");
     UI.hide("home");
     UI.show("canvasWrap");
     UI.updatePlayers(players);
     UI.setStatus("Draw by dragging on canvas");
+
+    const { width, height } = UI.elems.canvas;
+    State.set("spawnCircle", {
+      x: width / 2,
+      y: height / 2,
+      diameter: 18,
+      dragging: false,
+    });
+
+    const { width: czW, height: czH } = State.get("capZone");
+    State.set("capZone", {
+      x: width / 2 - czW / 2,
+      y: height / 2 - czH / 2,
+      width: czW,
+      height: czH,
+      dragging: false,
+    });
+
+    const canvas = UI.elems.canvas;
+
+    // // === Test lines for coordinate mapping verification ===
+    // const username = State.get("username") || "System";
+    // const thickness = 5; // same stroke width for visibility
+
+    // // Game canvas dimensions
+    // const GW = canvas.width;
+    // const GH = canvas.height;
+
+    // // Helper to send a horizontal line
+    // function drawTestLine(startX, endX, y) {
+    //   Network.drawLine({
+    //     start: { x: startX, y },
+    //     end: { x: endX, y },
+    //     username,
+    //   });
+    // }
+
+    // // 4) Top edge (horizontal center)
+    // drawTestLine(0, GW, 0);
+
+    // drawTestLine(0, GW, GH / 4);
+    // drawTestLine(0, GW, GH / 2);
+    // drawTestLine(0, GW, (GH * 3) / 4);
+
+    // // 6) Full-width horizontal near bottom (5px from bottom)
+    // drawTestLine(0, GW, GH - thickness / 2);
+
     Canvas.draw();
   });
+
   Network.onGameUpdate(({ players, votes }) => {
     UI.updatePlayers(players);
     UI.setVote(votes, players.length);
   });
   Network.onPlayerLine(({ id, playerId, line, username }) => {
-    const { start, end } = line; 
+    const { start, end } = line;
     const lines = State.get("lines");
 
     State.set("lines", [
@@ -87,11 +134,22 @@ function init() {
 
   // also listen for server broadcasts of type‐changes:
   Network.onLineTypeChanged(({ id, type }) => {
-    const updated = State.get('lines').map(l =>
-      l.id === id ? { ...l, type } : l
+    const updated = State.get("lines").map((l) =>
+      l.id === id ? { ...l, type } : l,
     );
-    State.set('lines', updated);
-    
+    State.set("lines", updated);
+  });
+
+  Network.onSpawnCircleMove(({ x, y }) => {
+    const spawn = State.get("spawnCircle");
+    State.set("spawnCircle", { ...spawn, x, y });
+    Canvas.draw();
+  });
+
+  Network.onCapZoneMove(({ x, y }) => {
+    const capZone = State.get("capZone");
+    State.set("capZone", { ...capZone, x, y });
+    Canvas.draw();
   });
 
   State.onChange((key, val) => {

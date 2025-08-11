@@ -6,7 +6,8 @@ import Canvas from "./canvas.js"; // ← add this
 import { copyLineInfo } from "./exportLines.js"; // <-- ensure this path is correct
 import { getHitLineId } from "./utils-client.js";
 import { updateLineTypeUI } from "./utils-client.js";
-
+import { emitSpawnCircleMove } from "./network.js";
+import { emitCapZoneMove } from "./network.js";
 
 export function handleJoin() {
   const name = UI.elems.usernameInput.value.trim();
@@ -102,56 +103,107 @@ export function bindUIEvents() {
   e.usernameInput.addEventListener("keydown", handleEnterKey(handleJoin));
   e.readyCheckbox.addEventListener("change", handleReadyToggle);
   e.voteCheckbox.addEventListener("change", handleVoteToggle);
-  e.canvas.addEventListener("mousedown", handleCanvasDown);
-  e.canvas.addEventListener("mouseup", handleCanvasUp);
   e.deleteLineBtn.addEventListener("click", handleDeleteLine);
   e.lineTypeSelect.addEventListener("change", handleLineTypeChange);
   e.chatSendBtn.addEventListener("click", handleSendChat);
   e.chatInput.addEventListener("keydown", handleEnterKey(handleSendChat));
+
   if (e.copyLineInfoBtn) {
     e.copyLineInfoBtn.addEventListener("click", () =>
-      copyLineInfo(State.get("lines"), e.canvas.width, e.canvas.height),
+      copyLineInfo(State.get("lines")),
+    );
+  }
+
+  // Copy Map Data button
+  const copyMapBtn = document.querySelector("#copyMapBtn");
+  if (copyMapBtn) {
+    copyMapBtn.addEventListener("click", () =>
+      copyLineInfo(State.get("lines")),
     );
   }
   if (e.popupCloseBtn) {
     e.popupCloseBtn.addEventListener("click", () => UI.hide("gameEndPopup"));
   }
 
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key.toLowerCase() === "s") {
-      if (!State.get("isHoldingS")) {
-        State.set("isHoldingS", true);
-        Canvas.draw(); // redraw immediately
-      }
+  let draggingCapZone = false;
+  let draggingSpawn = false;
+
+  e.canvas.addEventListener("mousedown", (ev) => {
+    const rect = e.canvas.getBoundingClientRect();
+    const mouseX = ev.clientX - rect.left;
+    const mouseY = ev.clientY - rect.top;
+
+    const capZone = State.get("capZone");
+    if (
+      mouseX >= capZone.x &&
+      mouseX <= capZone.x + capZone.width &&
+      mouseY >= capZone.y &&
+      mouseY <= capZone.y + capZone.height
+    ) {
+      draggingCapZone = true;
+      State.set("capZone", { ...capZone, dragging: true });
+      return;
     }
+    const spawn = State.get("spawnCircle");
+    const dist = Math.hypot(mouseX - spawn.x, mouseY - spawn.y);
+
+    if (dist <= spawn.diameter / 2) {
+      draggingSpawn = true;
+      State.set("spawnCircle", { ...spawn, dragging: true });
+      return; // prevent line selection
+    }
+
+    // Only call normal line handling if not on spawn circle
+    handleCanvasDown(ev);
   });
 
-  document.addEventListener("keyup", (ev) => {
-    if (ev.key.toLowerCase() === "s") {
-      if (State.get("isHoldingS")) {
-        State.set("isHoldingS", false);
-        Canvas.draw(); // redraw immediately
-      }
-    }
-  });
-
-  // Track mouse position on canvas
-  UI.elems.canvas.addEventListener("mousemove", (ev) => {
-    const rect = UI.elems.canvas.getBoundingClientRect();
+  e.canvas.addEventListener("mousemove", (ev) => {
+    const rect = e.canvas.getBoundingClientRect();
     const mouse = {
       x: ev.clientX - rect.left,
       y: ev.clientY - rect.top,
     };
     State.set("mouse", mouse);
 
-    if (State.get("isHoldingS")) {
-      Canvas.draw(); // trigger redraw with updated pointer
+    if (draggingCapZone) {
+      const capZone = State.get("capZone");
+      State.set("capZone", {
+        ...capZone,
+        x: mouse.x - capZone.width / 2,
+        y: mouse.y - capZone.height / 2,
+      });
+      Canvas.draw();
+    }
+
+    if (draggingSpawn) {
+      const spawn = State.get("spawnCircle");
+      State.set("spawnCircle", { ...spawn, x: mouse.x, y: mouse.y });
+      Canvas.draw();
     }
   });
 
+  e.canvas.addEventListener("mouseup", (ev) => {
+    if (draggingSpawn) {
+      draggingSpawn = false;
+      const spawn = State.get("spawnCircle");
+      State.set("spawnCircle", { ...spawn, dragging: false });
+      emitSpawnCircleMove(spawn.x, spawn.y);
+      return; // prevent new line creation
+    }
+
+    if (draggingCapZone) {
+      draggingCapZone = false;
+      const capZone = State.get("capZone");
+      State.set("capZone", { ...capZone, dragging: false });
+      emitCapZoneMove(capZone.x, capZone.y);
+      return;
+    }
+
+    handleCanvasUp(ev);
+  });
+  // === end spawn circle drag logic ===
+
   document.addEventListener("keydown", handleKeyCommands);
-
-
 }
 
 export function handleKeyCommands(ev) {

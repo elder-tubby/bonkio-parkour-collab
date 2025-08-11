@@ -1,6 +1,7 @@
+// utils-client.js
+
 import State from './state.js';
 
-// handlers.js (top)
 export function getHitLineId(pt) {
   const lines = State.get('lines');
   for (const { id, start, end, playerId } of lines) {
