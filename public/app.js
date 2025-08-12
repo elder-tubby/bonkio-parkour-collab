@@ -6,7 +6,8 @@ import Canvas from "./canvas.js";
 import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
 import { updateLineTypeUI } from "./utils-client.js";
-import { showToast } from "./utils-client.js"; 
+import { showToast } from "./utils-client.js";
+import { getSpawnDiameter } from "./utils-client.js";
 
 function init() {
   UI.init();
@@ -31,6 +32,16 @@ function init() {
     UI.hide("lobbyMessage");
     UI.hide("home");
     UI.show("canvasWrap");
+
+    // Add some fake players (only UI)
+    const fakePlayers = [
+      { id: "fake1", name: "Bot_Alice" },
+      { id: "fake2", name: "Bot_Bob" },
+      { id: "fake3", name: "Bot_Charlie" },
+      { id: "fake4", name: "Bot_Alice" },
+      { id: "fake5", name: "Bot_Bob" },
+      { id: "fake6", name: "Bot_Charlie" }
+    ];
     UI.updatePlayers(players);
     UI.setStatus("Draw by dragging on canvas");
 
@@ -85,11 +96,19 @@ function init() {
   });
 
   Network.onGameUpdate(({ players, votes }) => {
+    // Add some fake players (only UI)
+    const fakePlayers = [
+      { id: "fake1", name: "Bot_Alice" },
+      { id: "fake2", name: "Bot_Bob" },
+      { id: "fake3", name: "Bot_Charlie" },
+      { id: "fake4", name: "Bot_Alice" },
+      { id: "fake5", name: "Bot_Bob" },
+      { id: "fake6", name: "Bot_Charlie" }
+    ];
     UI.updatePlayers(players);
     UI.setVote(votes, players.length);
   });
-  Network.onPlayerLine(({ id, playerId, line, username }) => {
-    const { start, end } = line;
+  Network.onPlayerLine(({ id, playerId, line, symbol }) => {
     const lines = State.get("lines");
 
     State.set("lines", [
@@ -99,18 +118,18 @@ function init() {
         playerId,
         start: line.start,
         end: line.end,
-        username,
+        symbol, // store symbol here
         type: "none",
       },
     ]);
 
-    // Auto-select if it's our own line
     if (playerId === State.get("playerId")) {
       State.set("selectedLineId", id);
     }
 
     Canvas.draw();
   });
+
 
   Network.onChatMessage((msg) => UI.appendChat(msg));
 
@@ -155,6 +174,16 @@ function init() {
   Network.onSpawnCircleMove(({ x, y }) => {
     const spawn = State.get("spawnCircle");
     State.set("spawnCircle", { ...spawn, x, y });
+    Canvas.draw();
+  });
+
+  Network.onSpawnSizeChange(({ size }) => {
+    State.set("mapSize", size);
+    const spawn = State.get("spawnCircle");
+    State.set("spawnCircle", {
+      ...spawn,
+      diameter: getSpawnDiameter(),
+    });
     Canvas.draw();
   });
 

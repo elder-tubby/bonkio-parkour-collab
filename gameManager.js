@@ -56,8 +56,13 @@ class GameManager {
     return this.participants
       .map((id) => this.lobby.players[id])
       .filter(Boolean)
-      .map((p) => ({ id: p.id, name: p.name }));
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        symbol: p.symbol // <-- add this
+      }));
   }
+
 
   broadcastGameState() {
     this.io.emit(EVENTS.UPDATE, {
@@ -69,9 +74,12 @@ class GameManager {
 
   handleLine(playerId, line) {
     if (!this.active || !this.lobby.players[playerId]) return;
-    const username = this.lobby.players[playerId].name;
+    const player = this.lobby.players[playerId];
+    const username = player.name;
+    const symbol = player.symbol; // <- new
     const id = uuidv4();
-    this.io.emit(EVENTS.LINE, { id, playerId, line, username });
+
+    this.io.emit(EVENTS.LINE, { id, playerId, line, username, symbol });
   }
 
   voteFinish(playerId, vote) {

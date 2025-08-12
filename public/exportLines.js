@@ -113,11 +113,11 @@ export function copyLineInfo(lines) {
     };
   });
   const { x: extSpawnX, y: extSpawnY } = gameToExternal(spawn.x, spawn.y);
-
+const mapSize = State.get("mapSize");
   const out = {
     version: 1,
     spawn: { spawnX: extSpawnX - 935, spawnY: extSpawnY - 350},
-    mapSize: 9,
+    mapSize: mapSize,
     lines: [bgLine, capZoneLine, ...userLines],
   };
 

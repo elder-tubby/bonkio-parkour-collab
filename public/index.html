@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
   <head>
@@ -630,6 +629,20 @@
                   <option value="bouncy">Bouncy</option>
                   <option value="death">Death</option>
                 </select>
+              </div>
+              <!-- Spawn Size Slider -->
+              <div style="display: flex; gap: 8px; align-items: center">
+                <label for="spawnSizeSlider" style="white-space: nowrap"
+                  >Spawn Size:</label
+                >
+                <input
+                  type="range"
+                  id="spawnSizeSlider"
+                  min="1"
+                  max="13"
+                  value="5"
+                />
+                <span id="spawnSizeValue">5</span>
               </div>
             </div>
           </div>

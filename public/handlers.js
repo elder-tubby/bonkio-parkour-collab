@@ -9,7 +9,8 @@ import { updateLineTypeUI } from "./utils-client.js";
 import { handleUndoLastLine } from "./utils-client.js";
 import { emitSpawnCircleMove } from "./network.js";
 import { emitCapZoneMove } from "./network.js";
-
+import { getSpawnDiameter } from "./utils-client.js";
+import { emitSpawnSizeChange } from "./network.js";
 export function handleJoin() {
   const name = UI.elems.usernameInput.value.trim();
   if (!name) {
@@ -114,6 +115,21 @@ export function bindUIEvents() {
   e.chatSendBtn.addEventListener("click", handleSendChat);
   e.chatInput.addEventListener("keydown", handleEnterKey(handleSendChat));
 
+  // 🆕 Spawn size slider
+  e.spawnSizeSlider.addEventListener("input", (ev) => {
+    const size = parseInt(ev.target.value, 10);
+    e.spawnSizeValue.textContent = size;
+    State.set("mapSize", size);
+
+    const spawn = State.get("spawnCircle");
+    State.set("spawnCircle", {
+      ...spawn,
+      diameter: getSpawnDiameter(),
+    });
+
+    emitSpawnSizeChange(size); // broadcast to server/other players
+    Canvas.draw();
+  });
   if (e.copyLineInfoBtn) {
     e.copyLineInfoBtn.addEventListener("click", () =>
       copyLineInfo(State.get("lines")),

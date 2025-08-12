@@ -28,6 +28,7 @@ class State {
       spawnCircle: { x: 0, y: 0, diameter: 18, dragging: false },
       capZone: { x: 0, y: 0, width: 20, height: 12.4, dragging: false },
       hideUsernames: false,
+      mapSize: 5, // default in range 1–13
     };
     this.emitter = new Emitter();
   }

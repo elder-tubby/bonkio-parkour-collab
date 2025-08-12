@@ -95,3 +95,11 @@ export function onCapZoneMove(cb) {
 export function onChatError(cb) {
   socket.on("chatError", cb);
 }
+
+export function emitSpawnSizeChange(size) {
+  socket.emit("spawnSizeChange", { size });
+}
+
+export function onSpawnSizeChange(cb) {
+  socket.on("spawnSizeChange", cb);
+}

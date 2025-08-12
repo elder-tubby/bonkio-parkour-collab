@@ -16,7 +16,7 @@ class Canvas {
 
     // canvas.js → draw()
     // canvas.js → draw()
-    State.get("lines").forEach(({ id, start, end, username, type }) => {
+    State.get("lines").forEach(({ id, start, end, symbol, type }) => {
       const isSelected = id === State.get("selectedLineId");
 
       // Determine base color
@@ -52,10 +52,11 @@ class Canvas {
       }
 
       // Username label
-      if (username && !State.get("hideUsernames")) {
+      if (symbol && !State.get("hideUsernames")) {
         ctx.fillStyle = isSelected ? "yellow" : "white";
-        ctx.fillText(username, start.x + 5, start.y - 5);
+        ctx.fillText(symbol, start.x + 5, start.y - 5);
       }
+
     });
 
     // Draw shared spawn circle

@@ -81,6 +81,12 @@ io.on("connection", (socket) => {
     game.changeLineType(socket.id, payload.id, payload.type);
   });
 
+  socket.on("spawnSizeChange", ({ size }) => {
+    // clamp size
+    const clamped = Math.max(1, Math.min(13, size));
+    io.emit("spawnSizeChange", { size: clamped });
+  });
+
   socket.on(EVENTS.VOTE_FINISH, (vote) => {
     game.voteFinish(socket.id, vote);
   });
@@ -91,7 +97,9 @@ io.on("connection", (socket) => {
 
     // length check
     if (msg.length > MAX_MSG_LENGTH) {
-      socket.emit("chatError", { reason: `Message too long (max ${MAX_MSG_LENGTH} chars)` });
+      socket.emit("chatError", {
+        reason: `Message too long (max ${MAX_MSG_LENGTH} chars)`,
+      });
       return;
     }
 
@@ -108,7 +116,9 @@ io.on("connection", (socket) => {
     }
 
     if (history.length >= MESSAGE_LIMIT) {
-      socket.emit("chatError", { reason: `You are sending messages too quickly. Please wait.` });
+      socket.emit("chatError", {
+        reason: `You are sending messages too quickly. Please wait.`,
+      });
       return;
     }
 
@@ -116,7 +126,6 @@ io.on("connection", (socket) => {
     history.push(now);
     io.emit(EVENTS.CHAT_MESSAGE, { name: player.name, message: msg });
   });
-
 
   socket.on(EVENTS.DISCONNECT, () => {
     lobby.removePlayer(socket.id);

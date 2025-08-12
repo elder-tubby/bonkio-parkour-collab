@@ -1,18 +1,22 @@
 // utils-client.js
 
-import State from './state.js';
+import State from "./state.js";
 import * as Network from "./network.js";
 
 export function getHitLineId(pt) {
-  const lines = State.get('lines');
+  const lines = State.get("lines");
   for (const { id, start, end, playerId } of lines) {
-    if (playerId !== State.get('playerId')) continue;
-    const dx = end.x - start.x, dy = end.y - start.y;
-    const t = Math.max(0, Math.min(1,
-      ((pt.x - start.x)*dx + (pt.y - start.y)*dy) /
-      (dx*dx + dy*dy)
-    ));
-    const proj = { x: start.x + t*dx, y: start.y + t*dy };
+    if (playerId !== State.get("playerId")) continue;
+    const dx = end.x - start.x,
+      dy = end.y - start.y;
+    const t = Math.max(
+      0,
+      Math.min(
+        1,
+        ((pt.x - start.x) * dx + (pt.y - start.y) * dy) / (dx * dx + dy * dy),
+      ),
+    );
+    const proj = { x: start.x + t * dx, y: start.y + t * dy };
     if (Math.hypot(pt.x - proj.x, pt.y - proj.y) < 6) {
       return id;
     }
@@ -21,23 +25,23 @@ export function getHitLineId(pt) {
 }
 
 export function updateLineTypeUI(type) {
-  const select = document.getElementById('lineTypeSelect');
+  const select = document.getElementById("lineTypeSelect");
 
   if (!select) return;
 
   switch (type) {
-    case 'bouncy':
-      select.style.backgroundColor = '#888'; // gray
-      select.style.color = '#000'; // black text for contrast
+    case "bouncy":
+      select.style.backgroundColor = "#888"; // gray
+      select.style.color = "#000"; // black text for contrast
       break;
-    case 'death':
-      select.style.backgroundColor = '#e53935'; // vivid red
-      select.style.color = '#000'; // black text for contrast
+    case "death":
+      select.style.backgroundColor = "#e53935"; // vivid red
+      select.style.color = "#000"; // black text for contrast
       break;
-    case 'none':
+    case "none":
     default:
-      select.style.backgroundColor = '#fff'; // white
-      select.style.color = '#000'; // black text
+      select.style.backgroundColor = "#fff"; // white
+      select.style.color = "#000"; // black text
       break;
   }
 }
@@ -73,7 +77,9 @@ export function handleUndoLastLine() {
 
   const lines = State.get("lines");
   // Find last line created by this user
-  const lastUserLine = [...lines].reverse().find(line => line.username === username);
+  const lastUserLine = [...lines]
+    .reverse()
+    .find((line) => line.username === username);
 
   if (!lastUserLine) return; // nothing to undo
 
@@ -84,5 +90,50 @@ export function handleUndoLastLine() {
   }
 }
 
+export function getSpawnDiameter() {
+  let diameter = 0;
 
+  switch (Math.floor(State.get("mapSize"))) {
+    case 13:
+      diameter = 5 * 2;
+      break;
+    case 12:
+      diameter = 6 * 2;
+      break;
+    case 11:
+      diameter = 7 * 2;
+      break;
+    case 10:
+      diameter = 8 * 2;
+      break;
+    case 9:
+      diameter = 9 * 2;
+      break;
+    case 8:
+      diameter = 10 * 2;
+      break;
+    case 7:
+      diameter = 12 * 2;
+      break;
+    case 6:
+      diameter = 13 * 2;
+      break;
+    case 5:
+      diameter = 15 * 2;
+      break;
+    case 4:
+      diameter = 17 * 2;
+      break;
+    case 3:
+      diameter = 20 * 2;
+      break;
+    case 2:
+      diameter = 24 * 2;
+      break;
+    case 1:
+      diameter = 30 * 2;
+      break;
+  }
 
+  return diameter;
+}

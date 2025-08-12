@@ -6,5 +6,26 @@ module.exports = {
     { x: 608, y: 10 },
   ],
   CAP_ZONE_SIZE: 30,
-  MAX_PLAYERS: 8
+  MAX_PLAYERS: 8,
+  // Add a set of symbols to choose from
+  PLAYER_SYMBOLS: [
+    "🦦",
+    "💃🏽",
+    "👖",
+    "💀",
+    "🎶",
+    "👀",
+    "🦄",
+    "🌷",
+    "🙏",
+    "🌈",
+    "🌧",
+    "🦆",
+    "☕️",
+    "🎩",
+    "🖕🏽",
+    "✅",
+    "🔥",
+    "👩‍🍳",
+  ],
 };
