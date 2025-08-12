@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -17,10 +18,8 @@
         /* Layout spacing */
         --panel-gap: 1rem;
 
-        /* Left panel font control (change this to affect whole left-panel text) */
+        /* Font sizes */
         --left-panel-font-size: 13px;
-
-        /* Home/lobby font (kept same as original large size) */
         --home-font-size: 16px;
 
         /* Color tokens */
@@ -29,10 +28,9 @@
         --card-bg: #222;
         --muted-border: #333;
         --accent: #d2691e;
-        --placeholder-bg: rgba(255, 255, 255, 0.02);
       }
 
-      /* ---------- Reset / base ---------- */
+      /* Reset */
       * {
         box-sizing: border-box;
         margin: 0;
@@ -54,7 +52,7 @@
         min-height: 100vh;
       }
 
-      /* ---------- HOME / LOBBY (unchanged look/scale) ---------- */
+      /* HOME SCREEN */
       #homeScreen {
         width: 800px;
         display: flex;
@@ -62,16 +60,16 @@
         background: var(--panel-bg);
         padding: 2rem;
         border-radius: 10px;
-        font-size: var(
-          --home-font-size
-        ); /* restored large font for the lobby/home */
+        font-size: var(--home-font-size);
       }
+
       .column {
         flex: 1;
         display: flex;
         flex-direction: column;
         gap: 1rem;
       }
+
       .box {
         background: var(--card-bg);
         padding: 1rem;
@@ -118,11 +116,6 @@
         margin-top: 0.8rem;
       }
 
-      .player-status.ready {
-        color: green;
-        font-weight: bold;
-      }
-
       #readyList {
         list-style: none;
         max-height: 200px;
@@ -137,41 +130,34 @@
         padding: 0.4rem 0;
       }
 
-      /* ---------- APP (canvas + panels) ---------- */
+      /* CANVAS WRAPPER */
       #canvasWrapper {
         display: none;
         width: 100vw;
         height: 100vh;
+        justify-content: center;
+        align-items: flex-start;
         padding: 1rem;
         box-sizing: border-box;
       }
 
-      /* Keep tops aligned and avoid page vertical scrollbar by sizing containers based on canvas height */
       .main-panel {
         display: flex;
         gap: var(--panel-gap);
-        align-items: flex-start; /* ensure tops line up */
-        width: calc(
-          var(--canvas-width) + 240px + 260px + (var(--panel-gap) * 2)
-        );
-        max-width: calc(100vw - 2rem);
+        align-items: flex-start;
       }
 
-      /* ---------- LEFT SIDEBAR (narrower, unified font control) ---------- */
+      /* LEFT SIDEBAR */
       .sidebar {
-        width: 240px; /* decreased width as requested */
+        width: 240px;
         height: calc(var(--canvas-height) + 100px);
-
         background: var(--panel-bg);
         padding: 1rem;
-        overflow: hidden;
         border-right: 1px solid var(--muted-border);
         display: flex;
         flex-direction: column;
         gap: 0.8rem;
-        font-size: var(
-          --left-panel-font-size
-        ); /* single control point for left panel text */
+        font-size: var(--left-panel-font-size);
       }
 
       .sidebar .box h3 {
@@ -181,49 +167,31 @@
       }
 
       .sidebar .box:last-child {
-        flex: 1; /* take remaining space */
+        flex: 1;
         display: flex;
         flex-direction: column;
-        min-height: 0; /* CRITICAL: allows inner scroll areas to size correctly */
+        min-height: 0;
       }
 
       .two-col-list {
-        flex: 0 0 calc(var(--canvas-height) * 0.2); /* fixed height for ~8 players */
         list-style: none;
-        height: calc(
-          var(--canvas-height) * 0.3
-        ); /* fixed height for exactly 8 players */
-        max-height: calc(
-          var(--canvas-height) * 0.3
-        ); /* room for 8 slots visually */
+        height: calc(var(--canvas-height) * 0.3);
+        max-height: calc(var(--canvas-height) * 0.3);
         overflow-y: auto;
         padding-left: 0;
       }
 
       .two-col-list li {
         border-bottom: 1px solid var(--muted-border);
-        padding-bottom: 4px; /* space before the border */
-        margin-bottom: 2px;  /* extra separation between entries */
+        padding-bottom: 4px;
+        margin-bottom: 2px;
       }
+
       .two-col-list li:last-child {
         border-bottom: none;
         margin-bottom: 0;
       }
 
-
-      .two-col-list
-        border-bottom: 1px solid var(--muted-border); /* force visible dividers */
-      }
-
-      .player-slot {
-        border-bottom: 1px solid #555; /* slightly lighter so it’s visible */
-      }
-
-      .two-col-list .player-slot:last-child {
-        border-bottom: none; /* no extra line after last player */
-      }
-
-      /* Player slot styling & placeholders */
       .player-slot {
         display: grid;
         grid-template-columns: 1fr auto;
@@ -237,55 +205,41 @@
         color: #aaa;
         font-weight: 400;
       }
+
       .player-slot.ready .status {
         color: #00e676;
         font-weight: 700;
       }
+
       .player-slot:last-child {
         border-bottom: none;
       }
 
-
-
-      /* legend / color boxes */
-      .legend-item {
-        display: flex;
-        align-items: center;
-        margin-top: 0.5rem;
-        font-size: 0.95em;
-      }
-      .color-box {
-        width: 14px;
-        height: 14px;
-        margin-right: 0.5rem;
-        border: 1px solid #888;
-      }
-
-      /* ---------- VOTES / CHECKBOX GRID ---------- */
+      /* VOTES GRID */
       .votes-grid {
         display: grid;
         grid-template-columns: 1fr 44px;
         row-gap: 6px;
         column-gap: 8px;
         align-items: center;
-        font-size: inherit; /* follow left-panel font var */
+        font-size: inherit;
       }
+
       .votes-grid label,
       .votes-grid #voteStatus {
         font-size: 1em;
       }
+
       .votes-grid input[type="checkbox"] {
         justify-self: center;
         align-self: center;
-        width: auto;
-        height: auto;
         transform: scale(0.98);
       }
 
-      /* copy-map button in left panel */
       .copy-map-row {
         margin-top: 8px;
       }
+
       #copyMapBtn {
         padding: 0.45rem 0.85rem;
         font-family: "Lexend", sans-serif;
@@ -293,27 +247,21 @@
         width: fit-content;
       }
 
-      /* ---------- CANVAS FRAME: keeps bottom control width same as canvas ---------- */
+      /* CANVAS AREA */
       .canvas-area {
-        flex: 1;
         display: flex;
         justify-content: center;
-        padding-top: 0; /* remove extra gap above canvas */
-        align-items: flex-start; /* ensure top alignment */
+        align-items: flex-start;
       }
 
       .canvas-frame {
-        width: var(
-          --canvas-width
-        ); /* single source of truth for canvas + controls width */
+        width: var(--canvas-width);
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 12px;
       }
 
-      /* The canvas element uses intrinsic width/height attributes for coordinate buffer.
-         CSS makes it responsive within the canvas-frame. */
       canvas {
         width: 100%;
         height: auto;
@@ -323,7 +271,7 @@
         display: block;
       }
 
-      /* ---------- BOTTOM CONTROL BOX (same width as canvas) ---------- */
+      /* CONTROL BOX */
       .control-box {
         background: var(--card-bg);
         padding: 0.9rem;
@@ -340,7 +288,7 @@
         font-size: 13px;
       }
 
-      /* ensure buttons/selects keep consistent Lexend styling & padding */
+      /* BUTTONS & INPUTS */
       button {
         font-family: "Lexend", sans-serif;
         font-size: 13px;
@@ -351,9 +299,11 @@
         border-radius: 5px;
         cursor: pointer;
       }
+
       button:hover {
         background: #444;
       }
+
       #deleteLineBtn {
         width: fit-content;
       }
@@ -372,12 +322,13 @@
         border-radius: 5px;
         font-size: 13px;
       }
+
       #lineTypeSelect:disabled {
         opacity: 0.6;
         cursor: not-allowed;
       }
 
-      /* ---------- CHAT (default height equal to its max) ---------- */
+      /* CHAT */
       .chat-box {
         width: 260px;
         background: var(--panel-bg);
@@ -386,7 +337,6 @@
         display: flex;
         flex-direction: column;
         gap: 0.6rem;
-        align-items: stretch;
       }
 
       .chat-box h3 {
@@ -395,45 +345,37 @@
         color: #ddd;
       }
 
-      /* default height equals the former max height so chat isn't tiny when empty */
       #chatMessages {
         background: var(--card-bg);
         padding: 0.6rem;
         border-radius: 6px;
         overflow-y: auto;
-        height: calc(
-          var(--canvas-height) - 40px
-        ); /* fixed height matching canvas area visual */
+        height: calc(var(--canvas-height) - 40px);
         border: 1px solid var(--muted-border);
         font-size: 13px;
-        margin: 0.25rem 0;
-        padding-bottom: 4px; /* space before divider */
-        border-bottom: 1px solid var(--muted-border);
       }
 
-      /* Style each chat message inside the container */
       #chatMessages > * {
         border-bottom: 1px solid var(--muted-border);
-        padding-bottom: 4px; /* space before divider */
+        padding-bottom: 4px;
         margin-bottom: 4px;
       }
 
-      /* Remove border from the last message */
       #chatMessages > *:last-child {
         border-bottom: none;
         margin-bottom: 0;
         padding-bottom: 0;
       }
 
-
-      /* scrollbar styling */
       #chatMessages::-webkit-scrollbar {
         width: 7px;
       }
+
       #chatMessages::-webkit-scrollbar-thumb {
         background: #444;
         border-radius: 4px;
       }
+
       #chatMessages p {
         margin: 0.25rem 0;
         word-wrap: break-word;
@@ -455,47 +397,43 @@
         align-self: flex-end;
       }
 
-      /* ---------- TIPS section: keep compact and scrollable to avoid global scrolling ---------- */
+      /* TIPS LIST */
       .tips-list {
-        line-height: 1.6;
         flex: 1;
         font-size: inherit;
         line-height: 1.5;
         padding-left: 1.2rem;
-        max-height: calc(
-          var(--canvas-height) * 0.45
-        ); /* keeps the left column from causing page scroll */
+        max-height: calc(var(--canvas-height) * 0.45);
         overflow-y: auto;
-        overflow: auto;
-        min-height: 0; /* CRITICAL: prevents flex children from overflowing */
-
+        min-height: 0;
       }
+
       .tips-list ul {
         padding-left: 1.1rem;
       }
 
-      /* ----- 5) Match chat scrollbar style for tips-list (consistent look) ----- */
       .tips-list::-webkit-scrollbar,
       .two-col-list::-webkit-scrollbar {
         width: 7px;
       }
+
       .tips-list::-webkit-scrollbar-thumb,
       .two-col-list::-webkit-scrollbar-thumb {
         background: #444;
         border-radius: 4px;
       }
 
-      /* Firefox scrollbar styling fallback */
       .tips-list {
         scrollbar-width: thin;
         scrollbar-color: #444 transparent;
       }
+
       .two-col-list {
         scrollbar-width: thin;
         scrollbar-color: #444 transparent;
       }
 
-      /* ---------- GAME END POPUP (spacing, lexend & layout) ---------- */
+      /* POPUP */
       .popup-overlay {
         position: fixed;
         top: 0;
@@ -508,6 +446,7 @@
         align-items: center;
         z-index: 999;
       }
+
       .popup-box {
         position: relative;
         background: var(--panel-bg);
@@ -516,15 +455,18 @@
         text-align: center;
         width: 360px;
         border: 1px solid var(--muted-border);
-        font-family: "Lexend", sans-serif; /* ensure consistent Lexend here */
+        font-family: "Lexend", sans-serif;
       }
+
       .popup-box h2 {
         margin-bottom: 0.6rem;
       }
+
       .popup-box p {
         margin-bottom: 1rem;
         color: #ddd;
       }
+
       .popup-close {
         position: absolute;
         top: 8px;
@@ -535,28 +477,31 @@
         border: none;
         cursor: pointer;
       }
+
       .popup-actions {
         display: flex;
         gap: 8px;
         justify-content: center;
       }
+
       .popup-actions button {
         padding: 0.5rem 0.9rem;
       }
 
-      /* ---------- Accessibility & responsive tweaks ---------- */
+      /* RESPONSIVE */
       @media (max-width: 1200px) {
         .main-panel {
           flex-direction: column;
           align-items: center;
-          width: 100%;
           gap: 1rem;
         }
+
         .sidebar,
         .chat-box {
           width: 90%;
           max-width: 340px;
         }
+
         .canvas-frame {
           width: min(90vw, var(--canvas-width));
         }
@@ -565,7 +510,7 @@
   </head>
 
   <body>
-    <!-- HOME / LOBBY (kept visually same as original) -->
+    <!-- HOME SCREEN -->
     <div id="homeScreen">
       <div class="column">
         <div class="box info-box">
@@ -626,14 +571,12 @@
 
         <div class="box">
           <h3>Lobby Players</h3>
-          <ul id="readyList">
-            <!-- this list remains dynamic in JS; we keep the markup placeholder -->
-          </ul>
+          <ul id="readyList"></ul>
         </div>
       </div>
     </div>
 
-    <!-- Drawing Area -->
+    <!-- DRAWING AREA -->
     <div id="canvasWrapper">
       <div class="main-panel">
         <!-- LEFT SIDEBAR -->
@@ -672,10 +615,9 @@
           </div>
         </div>
 
-        <!-- CANVAS + BOTTOM CONTROLS (canvas width/source centralized) -->
+        <!-- CANVAS -->
         <div class="canvas-area">
           <div class="canvas-frame">
-            <!-- canvas buffer attributes must remain as requested -->
             <canvas id="canvas" width="750" height="500"></canvas>
 
             <div class="control-box">
@@ -708,7 +650,7 @@
       </div>
     </div>
 
-    <!-- Game End Popup -->
+    <!-- GAME END POPUP -->
     <div id="gameEndPopup" class="popup-overlay" aria-hidden="true">
       <div class="popup-box">
         <button id="popup-close" class="popup-close" aria-label="Close">
