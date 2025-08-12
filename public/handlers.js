@@ -102,7 +102,6 @@ export function handleHideUsernamesToggle(ev) {
   State.set("hideUsernames", ev.target.checked);
   Canvas.draw(); // redraw immediately with or without usernames
 }
-
 export function bindUIEvents() {
   const e = UI.elems;
   e.joinBtn.addEventListener("click", handleJoin);
@@ -121,13 +120,13 @@ export function bindUIEvents() {
     );
   }
 
-  // Copy Map Data button
   const copyMapBtn = document.querySelector("#copyMapBtn");
   if (copyMapBtn) {
     copyMapBtn.addEventListener("click", () =>
       copyLineInfo(State.get("lines")),
     );
   }
+
   if (e.popupCloseBtn) {
     e.popupCloseBtn.addEventListener("click", () => UI.hide("gameEndPopup"));
   }
@@ -151,25 +150,21 @@ export function bindUIEvents() {
       State.set("capZone", { ...capZone, dragging: true });
       return;
     }
+
     const spawn = State.get("spawnCircle");
     const dist = Math.hypot(mouseX - spawn.x, mouseY - spawn.y);
-
     if (dist <= spawn.diameter / 2) {
       draggingSpawn = true;
       State.set("spawnCircle", { ...spawn, dragging: true });
-      return; // prevent line selection
+      return;
     }
 
-    // Only call normal line handling if not on spawn circle
     handleCanvasDown(ev);
   });
 
   e.canvas.addEventListener("mousemove", (ev) => {
     const rect = e.canvas.getBoundingClientRect();
-    const mouse = {
-      x: ev.clientX - rect.left,
-      y: ev.clientY - rect.top,
-    };
+    const mouse = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
     State.set("mouse", mouse);
 
     if (draggingCapZone) {
@@ -195,7 +190,7 @@ export function bindUIEvents() {
       const spawn = State.get("spawnCircle");
       State.set("spawnCircle", { ...spawn, dragging: false });
       emitSpawnCircleMove(spawn.x, spawn.y);
-      return; // prevent new line creation
+      return;
     }
 
     if (draggingCapZone) {
@@ -208,27 +203,44 @@ export function bindUIEvents() {
 
     handleCanvasUp(ev);
   });
-  // === end spawn circle drag logic ===
 
-  document.addEventListener("keydown", handleKeyCommands);
+  // === Keyboard handling ===
+  document.addEventListener("keydown", (ev) => {
+    const chatInput = UI.elems.chatInput;
+
+    // Press Enter → focus chat if not already focused
+    if (
+      ev.key === "Enter" &&
+      document.activeElement !== chatInput &&
+      State.get("gameActive")
+    ) {
+      ev.preventDefault();
+      chatInput.focus();
+      return; // don’t trigger hotkeys
+    }
+
+    // Only run hotkeys if chat is NOT focused
+    if (document.activeElement === chatInput) return;
+
+    handleKeyCommands(ev);
+  });
 }
 
 export function handleKeyCommands(ev) {
   const key = ev.key.toLowerCase();
 
-  // Global hotkeys (not dependent on a selected line)
+  // Global hotkeys
   if (key === "h") {
     const current = State.get("hideUsernames");
     State.set("hideUsernames", !current);
     UI.elems.hideUsernamesCheckbox.checked = !current;
     Canvas.draw();
-    return; // stop here so 'h' doesn't get processed below
+    return;
   }
 
   const isCtrlZ = ev.ctrlKey && (ev.key === "z" || ev.key === "Z");
-
   if (isCtrlZ) {
-    ev.preventDefault(); // prevent browser undo
+    ev.preventDefault();
     handleUndoLastLine();
     return;
   }
@@ -237,36 +249,31 @@ export function handleKeyCommands(ev) {
     copyLineInfo(State.get("lines"));
     return;
   }
-  // only act if we have a selected line
+
+  // Line-specific hotkeys
   const lineId = State.get("selectedLineId");
   if (!lineId) return;
 
   switch (key) {
     case "b":
-      // toggle to bouncy
       Network.changeLineType({ id: lineId, type: "bouncy" });
       updateLineTypeUI("bouncy");
       UI.elems.lineTypeSelect.value = "bouncy";
       break;
 
     case "d":
-      // toggle to death
       Network.changeLineType({ id: lineId, type: "death" });
       updateLineTypeUI("death");
       UI.elems.lineTypeSelect.value = "death";
-
       break;
 
     case "n":
-      // toggle to none
       Network.changeLineType({ id: lineId, type: "none" });
       updateLineTypeUI("none");
       UI.elems.lineTypeSelect.value = "none";
-
       break;
 
     case "x":
-      // delete
       handleDeleteLine();
       break;
 
@@ -274,7 +281,6 @@ export function handleKeyCommands(ev) {
       return;
   }
 
-  // re‐draw immediately so you see the change
   Canvas.draw();
 }
 
