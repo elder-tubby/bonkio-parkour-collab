@@ -72,16 +72,25 @@ export function showToast(message) {
 }
 
 export function handleUndoLastLine() {
-  const username = State.get("username");
-  if (!username) return;
+  const playerId = State.get("playerId");  // <-- get playerId instead of username
+  console.log("Undo playerId:", playerId);
+  if (!playerId) {
+    console.log("null playerId");
+    return;
+  }
 
   const lines = State.get("lines");
-  // Find last line created by this user
+  console.log("All lines:", lines);
+
+  // Find last line created by this playerId
   const lastUserLine = [...lines]
     .reverse()
-    .find((line) => line.username === username);
+    .find((line) => line.playerId === playerId);
 
-  if (!lastUserLine) return; // nothing to undo
+  if (!lastUserLine) {
+    console.log("no user line");
+    return; // nothing to undo
+  }
 
   Network.deleteLine(lastUserLine.id);
   // Optionally clear selection if that line was selected
@@ -89,6 +98,7 @@ export function handleUndoLastLine() {
     State.set("selectedLineId", null);
   }
 }
+
 
 export function getSpawnDiameter() {
   let diameter = 0;

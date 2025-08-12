@@ -11,6 +11,7 @@ import { emitSpawnCircleMove } from "./network.js";
 import { emitCapZoneMove } from "./network.js";
 import { getSpawnDiameter } from "./utils-client.js";
 import { emitSpawnSizeChange } from "./network.js";
+
 export function handleJoin() {
   const name = UI.elems.usernameInput.value.trim();
   if (!name) {
@@ -150,6 +151,9 @@ export function bindUIEvents() {
   let draggingCapZone = false;
   let draggingSpawn = false;
 
+  let isDrawing = false;
+  let startPt = null;
+
   e.canvas.addEventListener("mousedown", (ev) => {
     const rect = e.canvas.getBoundingClientRect();
     const mouseX = ev.clientX - rect.left;
@@ -175,6 +179,10 @@ export function bindUIEvents() {
       return;
     }
 
+    // start drawing
+    isDrawing = true;
+    startPt = { x: mouseX, y: mouseY };
+
     handleCanvasDown(ev);
   });
 
@@ -198,6 +206,11 @@ export function bindUIEvents() {
       State.set("spawnCircle", { ...spawn, x: mouse.x, y: mouse.y });
       Canvas.draw();
     }
+
+    if (isDrawing) {
+      State.set("currentLine", { start: startPt, end: mouse });
+      Canvas.draw();
+    }
   });
 
   e.canvas.addEventListener("mouseup", (ev) => {
@@ -215,6 +228,12 @@ export function bindUIEvents() {
       State.set("capZone", { ...capZone, dragging: false });
       emitCapZoneMove(capZone.x, capZone.y);
       return;
+    }
+
+    if (isDrawing) {
+      isDrawing = false;
+
+      State.set("currentLine", null);
     }
 
     handleCanvasUp(ev);

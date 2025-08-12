@@ -32,16 +32,6 @@ function init() {
     UI.hide("lobbyMessage");
     UI.hide("home");
     UI.show("canvasWrap");
-
-    // Add some fake players (only UI)
-    const fakePlayers = [
-      { id: "fake1", name: "Bot_Alice" },
-      { id: "fake2", name: "Bot_Bob" },
-      { id: "fake3", name: "Bot_Charlie" },
-      { id: "fake4", name: "Bot_Alice" },
-      { id: "fake5", name: "Bot_Bob" },
-      { id: "fake6", name: "Bot_Charlie" }
-    ];
     UI.updatePlayers(players);
     UI.setStatus("Draw by dragging on canvas");
 
@@ -96,15 +86,6 @@ function init() {
   });
 
   Network.onGameUpdate(({ players, votes }) => {
-    // Add some fake players (only UI)
-    const fakePlayers = [
-      { id: "fake1", name: "Bot_Alice" },
-      { id: "fake2", name: "Bot_Bob" },
-      { id: "fake3", name: "Bot_Charlie" },
-      { id: "fake4", name: "Bot_Alice" },
-      { id: "fake5", name: "Bot_Bob" },
-      { id: "fake6", name: "Bot_Charlie" }
-    ];
     UI.updatePlayers(players);
     UI.setVote(votes, players.length);
   });
@@ -129,7 +110,6 @@ function init() {
 
     Canvas.draw();
   });
-
 
   Network.onChatMessage((msg) => UI.appendChat(msg));
 

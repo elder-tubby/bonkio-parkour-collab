@@ -56,8 +56,18 @@ class Canvas {
         ctx.fillStyle = isSelected ? "yellow" : "white";
         ctx.fillText(symbol, start.x + 5, start.y - 5);
       }
-
     });
+
+    // Draw preview line if exists
+    const preview = State.get("currentLine");
+    if (preview) {
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(preview.start.x, preview.start.y);
+      ctx.lineTo(preview.end.x, preview.end.y);
+      ctx.stroke();
+    }
 
     // Draw shared spawn circle
     const { x, y, diameter } = State.get("spawnCircle");
