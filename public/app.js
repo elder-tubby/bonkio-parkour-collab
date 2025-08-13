@@ -8,6 +8,7 @@ import { bindUIEvents } from "./handlers.js";
 import { updateLineTypeUI } from "./utils-client.js";
 import { showToast } from "./utils-client.js";
 import { getSpawnDiameter } from "./utils-client.js";
+import { distance, computeAngleDeg } from "./utils-client.js";
 
 function init() {
   UI.init();
@@ -332,11 +333,3 @@ function init() {
 document.addEventListener("DOMContentLoaded", init);
 
 // helpers used locally in this file (kept here to avoid adding more shared utilities)
-function distance(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.hypot(dx, dy);
-}
-function computeAngleDeg(a, b) {
-  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-}

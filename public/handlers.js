@@ -453,41 +453,148 @@ export function handleKeyCommands(ev) {
   Canvas.draw();
 }
 
-// Arrow-key nudges for selected line (bind to window keydown separately)
-export function handleArrowNudge(ev) {
-  const sel = State.get("selectedLineId");
-  if (!sel) return;
 
-  // only respond to arrow keys
+// small helper: schedule network move to avoid spamming server
+const moveTimeouts = new Map();
+function scheduleMoveLine(id, start, end, delay = 80) {
+  if (!id) return;
+  if (moveTimeouts.has(id)) clearTimeout(moveTimeouts.get(id));
+  const t = setTimeout(() => {
+    Network.moveLine({ id, start, end });
+    moveTimeouts.delete(id);
+  }, delay);
+  moveTimeouts.set(id, t);
+}
+
+// Arrow state & animation loop
+const _arrowState = {
+  keys: new Set(), // currently pressed arrow keys
+  anim: null,      // requestAnimationFrame id
+  last: 0,         // last timestamp
+  shift: false,    // whether shift is down (fast)
+};
+
+// base speeds (px/sec)
+const BASE_SPEED = 60;    // default hold speed (approx)
+const FAST_MULT = 4;      // when Shift held
+
+function _arrowLoop(now) {
+  if (!_arrowState.last) _arrowState.last = now;
+  const dt = Math.min(100, now - _arrowState.last) / 1000; // seconds, clamp dt for safety
+  _arrowState.last = now;
+
+  if (_arrowState.keys.size === 0) {
+    _arrowState.anim = null;
+    _arrowState.last = 0;
+    return;
+  }
+
+  // compute direction from set
+  let dx = 0, dy = 0;
+  if (_arrowState.keys.has("ArrowLeft")) dx -= 1;
+  if (_arrowState.keys.has("ArrowRight")) dx += 1;
+  if (_arrowState.keys.has("ArrowUp")) dy -= 1;
+  if (_arrowState.keys.has("ArrowDown")) dy += 1;
+
+  if (dx !== 0 || dy !== 0) {
+    // normalize so diagonal speed = straight-line speed
+    const len = Math.hypot(dx, dy);
+    if (len !== 0) {
+      dx /= len;
+      dy /= len;
+    }
+
+    const speed = BASE_SPEED * (_arrowState.shift ? FAST_MULT : 1);
+    const moveX = dx * speed * dt;
+    const moveY = dy * speed * dt;
+
+    const sel = State.get("selectedLineId");
+    if (sel) {
+      const updated = State.get("lines").map((l) => {
+        if (l.id !== sel) return l;
+        return {
+          ...l,
+          start: { x: l.start.x + moveX, y: l.start.y + moveY },
+          end: { x: l.end.x + moveX, y: l.end.y + moveY },
+        };
+      });
+
+      State.set("lines", updated);
+      Canvas.draw();
+
+      const line = updated.find((l) => l.id === sel);
+      if (line) scheduleMoveLine(sel, line.start, line.end);
+    }
+  }
+
+  _arrowState.anim = requestAnimationFrame(_arrowLoop);
+}
+
+// Keydown handler: add arrow to set and start loop if needed
+export function handleArrowKeyDown(ev) {
+  // keep chat focus behavior: don't move when chat input focused
+  const chatInput = UI && UI.elems ? UI.elems.chatInput : null;
+  if (chatInput && document.activeElement === chatInput) return;
+
+  const key = ev.key;
   const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
-  if (!arrows.includes(ev.key)) return;
+  if (!arrows.includes(key)) return;
 
-  // If ctrl or shift are used we handle those combos in handleKeyCommands
-  if (ev.ctrlKey || ev.shiftKey) return;
+  // don't handle combos reserved for other handlers
+  // don't handle combos reserved for other handlers
+  if (ev.ctrlKey || ev.altKey || ev.shiftKey) return;
+
+  _arrowState.keys.add(key);
+  _arrowState.shift = ev.shiftKey || _arrowState.shift;
 
   ev.preventDefault();
-  const step = ev.shiftKey ? 5 : 1;
-  let dx = 0,
-    dy = 0;
-  if (ev.key === "ArrowLeft") dx = -step;
-  if (ev.key === "ArrowRight") dx = step;
-  if (ev.key === "ArrowUp") dy = -step;
-  if (ev.key === "ArrowDown") dy = step;
 
-  const updated = State.get("lines").map((l) => {
-    if (l.id !== sel) return l;
-    return {
-      ...l,
-      start: { x: l.start.x + dx, y: l.start.y + dy },
-      end: { x: l.end.x + dx, y: l.end.y + dy },
-    };
-  });
-
-  State.set("lines", updated);
-  Canvas.draw();
-  const line = updated.find((l) => l.id === sel);
-  if (line) scheduleMoveLine(sel, line.start, line.end);
+  if (!_arrowState.anim) {
+    _arrowState.last = 0;
+    _arrowState.anim = requestAnimationFrame(_arrowLoop);
+  }
 }
+
+// Keyup handler: remove arrow and stop loop if empty; also track Shift release
+export function handleArrowKeyUp(ev) {
+  const key = ev.key;
+  const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+  if (arrows.includes(key)) {
+    _arrowState.keys.delete(key);
+    ev.preventDefault();
+  }
+
+  // If shift was released, update flag
+  if (key === "Shift") {
+    _arrowState.shift = false;
+  }
+
+  // If nothing pressed, stop
+  if (_arrowState.keys.size === 0 && _arrowState.anim) {
+    cancelAnimationFrame(_arrowState.anim);
+    _arrowState.anim = null;
+    _arrowState.last = 0;
+  }
+}
+
+// backwards-compatible wrapper: some code calls handleArrowNudge on keydown
+export function handleArrowNudge(ev) {
+  // If this wrapper is used it should forward to our new handlers
+  if (ev.type === "keydown") return handleArrowKeyDown(ev);
+  if (ev.type === "keyup") return handleArrowKeyUp(ev);
+}
+
+// install global listeners exactly once (safe guard)
+if (typeof window !== "undefined" && !window.__arrowControlsInstalled) {
+  window.__arrowControlsInstalled = true;
+  window.addEventListener("keydown", handleArrowKeyDown, { passive: false });
+  window.addEventListener("keyup", handleArrowKeyUp, { passive: false });
+}
+
+// make sure to attach BOTH events
+// window.addEventListener("keydown", handleArrowNudge);
+// window.addEventListener("keyup", handleArrowNudge);
+
 
 function midpoint(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -583,15 +690,15 @@ function modifySelectedLineAngle(delta) {
   }
 }
 
-const moveTimeouts = new Map();
-function scheduleMoveLine(id, start, end, delay = 80) {
-  if (moveTimeouts.has(id)) clearTimeout(moveTimeouts.get(id));
-  const t = setTimeout(() => {
-    Network.moveLine({ id, start, end });
-    moveTimeouts.delete(id);
-  }, delay);
-  moveTimeouts.set(id, t);
-}
+// const moveTimeouts = new Map();
+// function scheduleMoveLine(id, start, end, delay = 80) {
+//   if (moveTimeouts.has(id)) clearTimeout(moveTimeouts.get(id));
+//   const t = setTimeout(() => {
+//     Network.moveLine({ id, start, end });
+//     moveTimeouts.delete(id);
+//   }, delay);
+//   moveTimeouts.set(id, t);
+// }
 
 // ---- UI binding: attach DOM listeners here (keeps all listeners in one place) ----
 export function bindUIEvents() {

@@ -220,3 +220,13 @@ export function normalizeAngle(angle) {
   angle = ((angle % 180) + 180) % 180; // wrap into [0,180)
   return angle;
 }
+
+export function distance(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.hypot(dx, dy);
+}
+export function computeAngleDeg(a, b) {
+  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+}
+
