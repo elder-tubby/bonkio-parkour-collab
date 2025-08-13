@@ -19,70 +19,13 @@ function init() {
   Network.onConnect((id) => State.set("playerId", id));
   Network.onGameInProgress(
     () =>
-      UI.show("home") || UI.showLobbyMessage("Game in progress. Please wait."),
+      UI.show("home") ||
+      UI.showLobbyMessage("Game in progress. Choose a name to join"),
   );
   Network.onLobbyUpdate(({ players }) => {
+    State.set("lobbyPlayers", players || []);
     if (!State.get("gameActive")) UI.show("home");
     UI.updateLobby(players);
-  });
-
-  Network.onStartGame(({ capZone, players }) => {
-    State.set("gameActive", true);
-    State.set("lines", []);
-    UI.hide("lobbyMessage");
-    UI.hide("home");
-    UI.show("canvasWrap");
-    UI.updatePlayers(players);
-    UI.setStatus("Draw by dragging on canvas");
-
-    const { width, height } = UI.elems.canvas;
-    const { diameter: spawnDiameter } = State.get("spawnCircle");
-    State.set("spawnCircle", {
-      x: width / 2,
-      y: height / 2,
-      diameter: spawnDiameter,
-      dragging: false,
-    });
-
-    const { width: czW, height: czH } = State.get("capZone");
-    State.set("capZone", {
-      x: width / 2 - czW / 2,
-      y: height / 2 - czH / 2 - spawnDiameter - 5,
-      width: czW,
-      height: czH,
-      dragging: false,
-    });
-
-    const canvas = UI.elems.canvas;
-
-    // // === Test lines for coordinate mapping verification ===
-    // const username = State.get("username") || "System";
-    // const thickness = 5; // same stroke width for visibility
-
-    // // Game canvas dimensions
-    // const GW = canvas.width;
-    // const GH = canvas.height;
-
-    // // Helper to send a horizontal line
-    // function drawTestLine(startX, endX, y) {
-    //   Network.drawLine({
-    //     start: { x: startX, y },
-    //     end: { x: endX, y },
-    //     username,
-    //   });
-    // }
-
-    // // 4) Top edge (horizontal center)
-    // drawTestLine(0, GW, 0);
-
-    // drawTestLine(0, GW, GH / 4);
-    // drawTestLine(0, GW, GH / 2);
-    // drawTestLine(0, GW, (GH * 3) / 4);
-
-    // // 6) Full-width horizontal near bottom (5px from bottom)
-    // drawTestLine(0, GW, GH - thickness / 2);
-
-    Canvas.draw();
   });
 
   Network.onGameUpdate(({ players, votes }) => {
@@ -142,6 +85,14 @@ function init() {
     Canvas.draw();
   });
 
+  Network.onLineMoved(({ id, start, end }) => {
+    const updated = State.get("lines").map((l) =>
+      l.id === id ? { ...l, start, end } : l,
+    );
+    State.set("lines", updated);
+    Canvas.draw();
+  });
+
   // also listen for server broadcasts of type‐changes:
   Network.onLineTypeChanged(({ id, type }) => {
     const updated = State.get("lines").map((l) =>
@@ -164,6 +115,12 @@ function init() {
       ...spawn,
       diameter: getSpawnDiameter(),
     });
+
+    // Update the UI controls so the slider and label reflect the authoritative value
+    if (UI.elems.spawnSizeSlider) UI.elems.spawnSizeSlider.value = String(size);
+    if (UI.elems.spawnSizeValue)
+      UI.elems.spawnSizeValue.innerText = String(size);
+
     Canvas.draw();
   });
 
@@ -189,8 +146,124 @@ function init() {
     }
   });
 
-  // initial screen
-  UI.show("home");
-}
+  function initializeGameView({
+    capZone,
+    players,
+    spawnCircle,
+    mapSize,
+    lines,
+    votesCount = 0,
+    totalParticipants = 0,
+  }) {
+    State.set("gameActive", true);
 
+    State.set(
+      "lines",
+      (lines || []).map((l) => ({
+        id: l.id,
+        playerId: l.playerId,
+        start: l.start,
+        end: l.end,
+        symbol: l.symbol || l.username || "",
+        type: l.type || "none",
+      })),
+    );
+
+    UI.hide("lobbyMessage");
+    UI.hide("home");
+    UI.show("canvasWrap");
+    UI.updatePlayers(players);
+
+    // show vote counts properly; fallback to players.length if totalParticipants missing
+    const yes = typeof votesCount === "number" ? votesCount : 0;
+    const total =
+      typeof totalParticipants === "number" && totalParticipants > 0
+        ? totalParticipants
+        : players.length;
+    UI.setVote(yes, total);
+
+    UI.setStatus("Draw by dragging on canvas");
+
+    State.set("mapSize", mapSize ?? State.get("mapSize"));
+
+    // after setting State.set("mapSize", mapSize ?? State.get("mapSize"));
+    const authoritativeMapSize = State.get("mapSize");
+    if (UI.elems.spawnSizeSlider)
+      UI.elems.spawnSizeSlider.value = String(authoritativeMapSize);
+    if (UI.elems.spawnSizeValue)
+      UI.elems.spawnSizeValue.innerText = String(authoritativeMapSize);
+
+    const canvas = UI.elems.canvas;
+    const { width, height } = canvas;
+    const spawnDiameter =
+      (spawnCircle && spawnCircle.diameter) || getSpawnDiameter();
+
+    State.set("spawnCircle", {
+      x: (spawnCircle && spawnCircle.x) ?? width / 2,
+      y: (spawnCircle && spawnCircle.y) ?? height / 2,
+      diameter: spawnDiameter,
+      dragging: false,
+    });
+
+    State.set("capZone", {
+      x:
+        (capZone && capZone.x) ??
+        width / 2 - ((capZone && capZone.width) || 20) / 2,
+      y:
+        (capZone && capZone.y) ??
+        height / 2 -
+          ((capZone && capZone.height) || 12.4) / 2 -
+          spawnDiameter -
+          5,
+      width: (capZone && capZone.width) || 20,
+      height: (capZone && capZone.height) || 12.4,
+      dragging: false,
+    });
+
+    Canvas.draw();
+  }
+
+  // Use the dedicated func for both handlers
+
+  Network.onStartGame(({ capZone, players }) => {
+    // Votes data missing, so pass zero / players.length
+    initializeGameView({
+      capZone,
+      players,
+      spawnCircle: null,
+      mapSize: null,
+      lines: [],
+      votesCount: 0,
+      totalParticipants: players.length,
+    });
+  });
+
+  Network.onGameSnapshot(
+    ({
+      capZone,
+      players,
+      spawnCircle,
+      mapSize,
+      lines,
+      votesCount,
+      totalParticipants,
+      lobbyPayload,
+    }) => {
+      if (lobbyPayload && Array.isArray(lobbyPayload.players)) {
+        UI.updateLobby(lobbyPayload.players);
+        State.set("lobbyPlayers", lobbyPayload.players);
+      }
+
+      initializeGameView({
+        capZone,
+        players,
+        spawnCircle,
+        mapSize,
+        lines,
+        votesCount,
+        totalParticipants,
+      });
+    },
+  );
+}
 document.addEventListener("DOMContentLoaded", init);

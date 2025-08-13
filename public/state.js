@@ -18,7 +18,7 @@ class State {
   constructor() {
     this._state = {
       playerId: null,
-      username: '',
+      username: "",
       startPt: null,
       lines: [],
       gameActive: false,
@@ -30,6 +30,8 @@ class State {
       hideUsernames: false,
       mapSize: 9, // default in range 1–13
       currentLine: null,
+      lobbyPlayers: [], // <-- added
+      draggingLine: null,
     };
     this.emitter = new Emitter();
   }

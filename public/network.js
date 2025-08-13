@@ -103,3 +103,15 @@ export function emitSpawnSizeChange(size) {
 export function onSpawnSizeChange(cb) {
   socket.on("spawnSizeChange", cb);
 }
+
+export function onGameSnapshot(cb) {
+  socket.on("gameSnapshot", cb);
+}
+
+export function moveLine(payload) {
+  socket.emit("moveLine", payload);
+}
+
+export function onLineMoved(cb) {
+  socket.on("lineMoved", cb);
+}

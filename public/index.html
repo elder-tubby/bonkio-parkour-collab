@@ -281,6 +281,7 @@
         align-items: center;
         gap: 0.6rem;
         border: 1px solid var(--muted-border);
+        font-size: 13px; /* uniform font size for all children */
       }
 
       .control-box #status {
@@ -633,16 +634,10 @@
               <!-- Spawn Size Slider -->
               <div style="display: flex; gap: 8px; align-items: center">
                 <label for="spawnSizeSlider" style="white-space: nowrap"
-                  >Spawn Size:</label
+                  >Map Size:</label
                 >
-                <input
-                  type="range"
-                  id="spawnSizeSlider"
-                  min="1"
-                  max="13"
-                  value="9"
-                />
-                <span id="spawnSizeValue">9</span>
+                <input type="range" id="spawnSizeSlider" min="1" max="13" />
+                <span id="spawnSizeValue"></span>
               </div>
             </div>
           </div>
@@ -655,7 +650,7 @@
           <input
             type="text"
             id="chatInput"
-            placeholder="Press Enter to focus chat"
+            placeholder="Press Enter to start typing..."
             autocomplete="off"
           />
           <button id="chatSendBtn">Send</button>

@@ -3,25 +3,63 @@
 import State from "./state.js";
 import * as Network from "./network.js";
 
-export function getHitLineId(pt) {
-  const lines = State.get("lines");
-  for (const { id, start, end, playerId } of lines) {
-    if (playerId !== State.get("playerId")) continue;
-    const dx = end.x - start.x,
-      dy = end.y - start.y;
-    const t = Math.max(
-      0,
-      Math.min(
-        1,
-        ((pt.x - start.x) * dx + (pt.y - start.y) * dy) / (dx * dx + dy * dy),
-      ),
-    );
-    const proj = { x: start.x + t * dx, y: start.y + t * dy };
-    if (Math.hypot(pt.x - proj.x, pt.y - proj.y) < 6) {
-      return id;
+/**
+ * distance from point p to line segment ab
+ */
+function distToSegmentSquared(p, a, b) {
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const wx = p.x - a.x;
+  const wy = p.y - a.y;
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return wx * wx + wy * wy;
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) {
+    const dx = p.x - b.x;
+    const dy = p.y - b.y;
+    return dx * dx + dy * dy;
+  }
+  const t = c1 / c2;
+  const projx = a.x + t * vx;
+  const projy = a.y + t * vy;
+  const dx = p.x - projx;
+  const dy = p.y - projy;
+  return dx * dx + dy * dy;
+}
+
+/**
+ * returns a hit line id if the point is close enough (threshold)
+ * allows selection if:
+ *  - the line belongs to this client OR
+ *  - the line-owner is not present in the lobby/participants (i.e., they left)
+ */
+export function getHitLineId(point) {
+  const lines = State.get("lines") || [];
+  const lobby = State.get("lobbyPlayers") || [];
+  const currentPlayerId = State.get("playerId");
+
+  // map of present player ids for quick lookup (lobbyPlayers may be array)
+  const presentIds = new Set((lobby || []).map((p) => p.id));
+
+  let best = null;
+  let bestDist = Infinity;
+  const THRESHOLD_SQ = 8 * 8; // clickable distance ~8px
+
+  for (const line of lines) {
+    const d2 = distToSegmentSquared(point, line.start, line.end);
+    if (d2 <= THRESHOLD_SQ && d2 < bestDist) {
+      // decide if selection allowed:
+      const ownerId = line.playerId;
+      const ownerPresent = presentIds.has(ownerId);
+      const canSelect = ownerId === currentPlayerId || !ownerPresent;
+      if (canSelect) {
+        best = line.id;
+        bestDist = d2;
+      }
     }
   }
-  return null;
+
+  return best;
 }
 
 export function updateLineTypeUI(type) {
@@ -72,7 +110,7 @@ export function showToast(message) {
 }
 
 export function handleUndoLastLine() {
-  const playerId = State.get("playerId");  // <-- get playerId instead of username
+  const playerId = State.get("playerId"); // <-- get playerId instead of username
   console.log("Undo playerId:", playerId);
   if (!playerId) {
     console.log("null playerId");
@@ -98,7 +136,6 @@ export function handleUndoLastLine() {
     State.set("selectedLineId", null);
   }
 }
-
 
 export function getSpawnDiameter() {
   let diameter = 0;

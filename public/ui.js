@@ -51,14 +51,16 @@ class UI {
   }
 
   updateLobby(players) {
-    this.elems.readyList.innerHTML = players
-      .map(
-        (p) =>
-          `<li><span>${p.symbol} ${p.name}</span><span class="${p.ready ? "status-green" : "status-red"}">${p.ready ? "Ready" : "Not ready"}</span></li>`,
-      )
+    this.elems.readyList.innerHTML = (players || [])
+      .map((p) => {
+        const status = p.inGame ? "In Game" : p.ready ? "Ready" : "Not ready";
+        const color = p.inGame ? "#ffc107" : p.ready ? "#28a745" : "#dc3545";
+        return `<li><span>${p.symbol} ${p.name}</span><span style="color:${color}; margin-left: 8px">${status}</span></li>`;
+      })
       .join("");
   }
 
+  // ui.js - updatePlayers (for side list)
   updatePlayers(players) {
     this.elems.playerList.innerHTML = players
       .map((p) => `<li><span>${p.symbol} ${p.name}</span></li>`)

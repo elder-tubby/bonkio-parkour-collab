@@ -27,7 +27,15 @@ class LobbyManager {
         ? availableSymbols[Math.floor(Math.random() * availableSymbols.length)]
         : PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)];
 
-    this.players[socketId] = { id: socketId, name, ready: false, symbol };
+    // lobbyManager.js — in addPlayer()
+    this.players[socketId] = {
+      id: socketId,
+      name,
+      ready: false,
+      symbol,
+      inGame: false,
+    };
+
     this.broadcastLobby();
   }
 
@@ -59,10 +67,12 @@ class LobbyManager {
         id: p.id,
         name: p.name,
         ready: p.ready,
-        symbol: p.symbol, // send to clients
+        symbol: p.symbol,
+        inGame: !!p.inGame,
       })),
     };
   }
+
 
   broadcastLobby() {
     this.io.emit(EVENTS.LOBBY_UPDATE, this.getLobbyPayload());

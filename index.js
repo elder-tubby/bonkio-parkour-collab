@@ -35,6 +35,7 @@ const EVENTS = {
   DELETE_LINE: "deleteLine",
   CHANGE_LINE_TYPE: "changeLineType",
   LINE_TYPE_CHANGED: "lineTypeChanged",
+  MOVE_LINE: "moveLine",
 };
 
 const MESSAGE_LIMIT = 5; // max messages
@@ -59,13 +60,25 @@ io.on("connection", (socket) => {
     }
 
     lobby.addPlayer(socket.id, name);
+
+    // If a game is currently active, immediately add the joiner to the current game's participants
+    // so they appear in player lists, can vote, and receive the live snapshot.
+    // game.addParticipant will broadcast lobby & game state and will emit the personal gameSnapshot.
+    if (game.active) {
+      game.addParticipant(socket.id);
+    }
   });
 
   socket.on(EVENTS.SET_READY, (isReady) => {
     lobby.setReady(socket.id, isReady);
-    // auto‑start if ≥2 ready and no game running
-    if (!game.active && lobby.readyCount() >= 2) {
-      game.start();
+
+    if (!game.active) {
+      if (lobby.readyCount() >= 2) {
+        game.start();
+      }
+    } else {
+      if (isReady) game.addParticipant(socket.id);
+      else game.removeParticipant(socket.id);
     }
   });
 
@@ -77,14 +90,18 @@ io.on("connection", (socket) => {
     game.deleteLine(socket.id, lineId);
   });
 
-  socket.on(EVENTS.CHANGE_LINE_TYPE, (payload) => {
-    game.changeLineType(socket.id, payload.id, payload.type);
+  // allow clients to request line moves
+  socket.on(EVENTS.MOVE_LINE, ({ id, start, end }) => {
+    game.moveLine(socket.id, { id, start, end });
   });
 
   socket.on("spawnSizeChange", ({ size }) => {
     // clamp size
     const clamped = Math.max(1, Math.min(13, size));
-    io.emit("spawnSizeChange", { size: clamped });
+    // persist in the GameManager so snapshots include it for late joiners
+    game.setMapSize(clamped);
+    // GameManager.setMapSize already does: this.mapSize = size; this.io.emit("spawnSizeChange", { size });
+    // so no need to call io.emit here again — setMapSize will broadcast.
   });
 
   socket.on(EVENTS.VOTE_FINISH, (vote) => {
@@ -136,12 +153,15 @@ io.on("connection", (socket) => {
     game.changeLineType(socket.id, payload.id, payload.type);
   });
 
-  socket.on("spawnCircleMove", ({ x, y }) => {
-    io.emit("spawnCircleMove", { x, y });
+  socket.on("spawnCircleMove", ({ x, y, diameter }) => {
+    // store & broadcast (if diameter undefined, keep existing)
+    const d =
+      diameter ?? (game.spawnCircle ? game.spawnCircle.diameter : undefined);
+    game.setSpawnCircle(x, y, d);
   });
 
-  socket.on("capZoneMove", ({ x, y }) => {
-    io.emit("capZoneMove", { x, y });
+  socket.on("capZoneMove", ({ x, y, width, height }) => {
+    game.setCapZone(x, y, width, height);
   });
 });
 
