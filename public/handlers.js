@@ -9,6 +9,7 @@ import {
   updateLineTypeUI,
   handleUndoLastLine,
   getSpawnDiameter,
+  normalizeAngle,
 } from "./utils-client.js";
 import {
   emitSpawnCircleMove,
@@ -207,14 +208,13 @@ export function handleCanvasDown(evt) {
     return;
   }
 
-  // check for a hit on a line (uses utils-client.getHitLineId which allows orphan selection)
+  // check for a hit on a line
   const hitId = getHitLineId(pt);
   if (hitId) {
     State.set("selectedLineId", hitId);
 
-    // prepare dragging state for that line
     const line = State.get("lines").find((l) => l.id === hitId);
-    if (!line) return; // defensive
+    if (!line) return;
     State.set("draggingLine", {
       id: hitId,
       mouseStart: pt,
@@ -222,19 +222,16 @@ export function handleCanvasDown(evt) {
       origEnd: { ...line.end },
     });
 
-    // add global handlers to continue drag even if cursor leaves canvas
     window.addEventListener("mousemove", handleCanvasMoveDuringDrag);
     window.addEventListener("mouseup", handleCanvasDragEnd);
-
     Canvas.draw();
-    return;
+    return; // ← stops here, no “startPt” set
   }
 
-  // otherwise start a new draw
+  // no hit → start a new line
   State.set("selectedLineId", null);
   State.set("startPt", pt);
   State.set("currentLine", null);
-  // remember down time so a quick click doesn't create a tiny line
   State.set("mouseDownTime", Date.now());
   Canvas.draw();
 }
@@ -297,30 +294,15 @@ export function handleCanvasUp(evt) {
 
   // if user was drawing a new line, finalize it
   const start = State.get("startPt");
-  if (!start) {
-    // not drawing; maybe release after a drag handled by global handler
-    return;
-  }
+  if (!start) return;
 
-  // prevent accidental tiny lines on quick clicks:
-  const downTime = State.get("mouseDownTime") || 0;
-  const CLICK_THRESHOLD_MS = 180;
-  const now = Date.now();
-  const dt = now - downTime;
-  // clear preview and decide if it was a significant drag
   State.set("currentLine", null);
 
-  // if it was a very quick click, treat as deselect rather than creating a tiny line
-  if (dt < CLICK_THRESHOLD_MS) {
-    State.set("startPt", null);
-    return;
-  }
-
+  // Only distance threshold remains
   const dx = pt.x - start.x;
   const dy = pt.y - start.y;
-  const distSq = dx * dx + dy * dy;
-  const MIN_DIST_SQ = 25; // squared distance threshold (5px)
-  if (distSq < MIN_DIST_SQ) {
+  if (dx * dx + dy * dy < 25) {
+    // ~5px
     State.set("startPt", null);
     return;
   }
@@ -563,28 +545,42 @@ function modifySelectedLineHeight(delta) {
   }
 }
 
+function normalizeAngle180(angle) {
+  // Wrap into [0,180)
+  return ((angle % 180) + 180) % 180;
+}
+
 function modifySelectedLineAngle(delta) {
   const sel = State.get("selectedLineId");
   if (!sel) return;
+
   const lines = State.get("lines").map((l) => {
     if (l.id !== sel) return l;
+
     const curAngle =
       typeof l.angle === "number" ? l.angle : computeAngleDeg(l.start, l.end);
-    let newAngle = (curAngle + delta) % 360;
-    if (newAngle < 0) newAngle += 360;
-    // rotate around center
+
+    // Add delta, then normalize to [0, 180)
+    let newAngle = normalizeAngle180(curAngle + delta);
+
+    // Rotate around center
     const center = midpoint(l.start, l.end);
     const w = typeof l.width === "number" ? l.width : distance(l.start, l.end);
     const hv = halfVectorFromAngleWidth(newAngle, w);
     const newStart = { x: center.x - hv.x, y: center.y - hv.y };
     const newEnd = { x: center.x + hv.x, y: center.y + hv.y };
+
     return { ...l, angle: newAngle, start: newStart, end: newEnd };
   });
+
   State.set("lines", lines);
   Canvas.draw();
+
   const line = lines.find((l) => l.id === sel);
-  if (line) scheduleSendProps(sel, { angle: line.angle });
-  UI.updateLineEditorValues(line);
+  if (line) {
+    scheduleSendProps(sel, { angle: line.angle });
+    UI.updateLineEditorValues(line);
+  }
 }
 
 const moveTimeouts = new Map();
@@ -694,7 +690,11 @@ export function bindUIEvents() {
     e.lineAngleSlider.addEventListener("input", () => {
       const sel = State.get("selectedLineId");
       if (!sel) return;
-      const val = Number(e.lineAngleSlider.value);
+
+      // 🔹 Normalize to 0–180
+      const rawVal = Number(e.lineAngleSlider.value);
+      const val = normalizeAngle180(rawVal);
+
       const lines = State.get("lines").map((l) => {
         if (l.id !== sel) return l;
         const center = {
@@ -717,8 +717,10 @@ export function bindUIEvents() {
           end: { x: center.x + halfX, y: center.y + halfY },
         };
       });
+
       State.set("lines", lines);
       Canvas.draw();
+
       if (e.lineAngleValue) e.lineAngleValue.innerText = String(val);
       Network.changeLineProps({ id: sel, angle: val });
     });

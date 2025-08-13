@@ -1,5 +1,5 @@
 // gameManager.js
-const { genCapZone } = require("./utils");
+
 const EVENTS = {
   START: "startGame",
   UPDATE: "gameUpdate",
@@ -31,7 +31,7 @@ class GameManager {
 
   start() {
     this.active = true;
-    this.capZone = genCapZone();
+    this.capZone = { x: null, y: null, width: 30, height: 18.5, dragging: false }
     this.participants = Object.keys(this.lobby.players);
     this.votes = this.participants.reduce((acc, id) => {
       acc[id] = false;

@@ -98,13 +98,13 @@ class Canvas {
     // Draw shared spawn circle
     const { x, y, diameter } = State.get("spawnCircle");
     ctx.beginPath();
-    ctx.arc(x, y, diameter / 2 - 2, 0, 2 * Math.PI);
-    ctx.strokeStyle = "limegreen";
+    ctx.arc(x, y, diameter / 2 - 1, 0, 2 * Math.PI);
+    ctx.strokeStyle = "deepskyblue";
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Label below circle
-    ctx.fillStyle = "limegreen";
+    ctx.fillStyle = "deepskyblue";
     ctx.font = "9px Lexend";
     ctx.textAlign = "center";
     ctx.fillText("spawn", x, y + diameter / 2 + 8);

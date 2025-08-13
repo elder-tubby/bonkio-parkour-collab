@@ -265,14 +265,21 @@ function init() {
       dragging: false,
     });
 
-    const capWidth = (capZone && capZone.width) || 20;
-    const capHeight = (capZone && capZone.height) || 12.4;
+    const capWidth = (capZone && capZone.width) || 30;
+    const capHeight = (capZone && capZone.height) || 18.5;
 
     State.set("capZone", {
-      x: width / 2 - capWidth / 2,
-      y: height / 2 - capHeight / 2,
-      width: capWidth,
-      height: capHeight,
+      x:
+        (capZone && capZone.x) ??
+        width / 2 - ((capZone && capZone.width) || 30) / 2,
+      y:
+        (capZone && capZone.y) ??
+        height / 2 -
+          ((capZone && capZone.height) || 18.5) / 2 -
+          spawnDiameter -
+          5,
+      width: (capZone && capZone.width) || 30,
+      height: (capZone && capZone.height) || 18.5,
       dragging: false,
     });
 

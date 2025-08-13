@@ -1,4 +1,6 @@
 // ui.js
+
+import { normalizeAngle } from "./utils-client.js";
 // All DOM interactions
 const SELECTORS = {
   home: "#homeScreen",
@@ -212,7 +214,7 @@ class UI {
       "lineAngleSlider",
       "Angle (SHIFT + L/R)",
       0,
-      360,
+      180,
       0,
     );
 
@@ -330,13 +332,15 @@ class UI {
     if (this.elems.lineHeightSlider)
       this.elems.lineHeightSlider.value = String(h);
     if (this.elems.lineAngleSlider)
-      this.elems.lineAngleSlider.value = String(a);
+      this.elems.lineAngleSlider.value = String(normalizeAngle(a));
+
     if (this.elems.lineWidthValue)
       this.elems.lineWidthValue.innerText = String(w);
     if (this.elems.lineHeightValue)
       this.elems.lineHeightValue.innerText = String(h);
     if (this.elems.lineAngleValue)
-      this.elems.lineAngleValue.innerText = String(a);
+      this.elems.lineAngleValue.innerText = String(normalizeAngle(a));
+
   }
 }
 

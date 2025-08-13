@@ -3,6 +3,7 @@
 // Tracks everyone in the lobby and their “ready” state.
 
 const { PLAYER_SYMBOLS } = require("./config");
+const config = require("./config");
 
 const EVENTS = {
   LOBBY_UPDATE: "lobbyUpdate",
@@ -15,19 +16,34 @@ class LobbyManager {
   }
 
   addPlayer(socketId, name) {
-    // Pick a unique symbol from available pool
+    // Assign a symbol based on the player's name
+    const assignedSymbol = config.getSymbolFromName(name);
+
+    // Filter out symbols that are already in use
     const usedSymbols = new Set(
       Object.values(this.players).map((p) => p.symbol),
     );
-    const availableSymbols = PLAYER_SYMBOLS.filter((s) => !usedSymbols.has(s));
 
-    // If all symbols used, just cycle (or you could reject join)
-    const symbol =
-      availableSymbols.length > 0
-        ? availableSymbols[Math.floor(Math.random() * availableSymbols.length)]
-        : PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)];
+    // If the assigned symbol is already in use, find a different one
+    let symbol;
+    if (usedSymbols.has(assignedSymbol)) {
+      const availableSymbols = PLAYER_SYMBOLS.filter(
+        (s) => !usedSymbols.has(s),
+      );
+      // If there are other symbols available, pick a random one
+      if (availableSymbols.length > 0) {
+        symbol =
+          availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
+      } else {
+        // If all symbols are used, just pick a random one from the whole list,
+        // which might result in a duplicate.
+        symbol =
+          PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)];
+      }
+    } else {
+      symbol = assignedSymbol;
+    }
 
-    // lobbyManager.js — in addPlayer()
     this.players[socketId] = {
       id: socketId,
       name,
@@ -72,7 +88,6 @@ class LobbyManager {
       })),
     };
   }
-
 
   broadcastLobby() {
     this.io.emit(EVENTS.LOBBY_UPDATE, this.getLobbyPayload());

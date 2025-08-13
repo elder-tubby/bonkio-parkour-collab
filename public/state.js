@@ -26,7 +26,7 @@ class State {
       mouse: { x: 0, y: 0 },
       isHoldingS: false,
       spawnCircle: { x: 0, y: 0, diameter: 18, dragging: false },
-      capZone: { x: 0, y: 0, width: 30, height: 18.5, dragging: false },
+      capZone: { x: null, y: null, width: 30, height: 18.5, dragging: false },
       hideUsernames: false,
       mapSize: 9, // default in range 1–13
       currentLine: null,

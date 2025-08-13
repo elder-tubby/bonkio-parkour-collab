@@ -33,34 +33,44 @@ function pointToSegmentDistance(p, a, b) {
   return Math.hypot(p.x - projx, p.y - projy);
 }
 
-/**
- * returns a hit line id if the point is close enough (threshold)
- * Now takes the line's current height into account and respects width/angle endpoints.
- */
 export function getHitLineId(point) {
   const lines = State.get("lines") || [];
   const lobby = State.get("lobbyPlayers") || [];
   const currentPlayerId = State.get("playerId");
+  const presentIds = new Set(lobby.map((p) => p.id));
 
-  const presentIds = new Set((lobby || []).map((p) => p.id));
-
-  // prefer topmost (last drawn) first
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     const start = line.start;
     const end = computeEnd(line);
 
-    const dist = pointToSegmentDistance(point, start, end);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
 
-    // clickable threshold: half the logical height, with a minimum for thin lines
-    const logicalHeight = typeof line.height === "number" ? line.height : 4;
-    const half = Math.max(8, logicalHeight / 2); // min 8px half-width for hit-testing
+    // Rotate point into line's local coordinate space
+    const angle = Math.atan2(dy, dx);
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
 
-    if (dist <= half) {
+    const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
+    const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
+
+    const lineHeight = typeof line.height === "number" ? line.height : 4;
+
+    // Check if inside the rectangle bounds
+    const halfH = lineHeight / 2;
+    if (
+      localX >= 0 &&
+      localX <= length &&
+      localY >= -halfH &&
+      localY <= halfH
+    ) {
       const ownerId = line.playerId;
       const ownerPresent = presentIds.has(ownerId);
-      const canSelect = ownerId === currentPlayerId || !ownerPresent;
-      if (canSelect) return line.id;
+      if (ownerId === currentPlayerId || !ownerPresent) {
+        return line.id;
+      }
     }
   }
 
@@ -204,4 +214,9 @@ export function getLineProps(l) {
       : (Math.atan2(dy, dx) * 180) / Math.PI;
 
   return { width, height, angle };
+}
+
+export function normalizeAngle(angle) {
+  angle = ((angle % 180) + 180) % 180; // wrap into [0,180)
+  return angle;
 }
