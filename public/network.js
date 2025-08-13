@@ -127,3 +127,7 @@ export function onSpawnSizeChange(cb) {
 export function onGameSnapshot(cb) {
   socket.on("gameSnapshot", cb);
 }
+
+export function onLobbyNameTaken(cb) {
+  socket.on("lobbyNameTaken", cb);
+}

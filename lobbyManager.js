@@ -16,6 +16,15 @@ class LobbyManager {
   }
 
   addPlayer(socketId, name) {
+    // Prevent joining if a case-insensitive duplicate name exists
+    const lowerName = name.trim().toLowerCase();
+    const duplicate = Object.values(this.players).some(
+      (p) => p.name.trim().toLowerCase() === lowerName,
+    );
+    if (duplicate) {
+      return { error: "duplicateName" }; // signal back to caller
+    }
+
     // Assign a symbol based on the player's name
     const assignedSymbol = config.getSymbolFromName(name);
 

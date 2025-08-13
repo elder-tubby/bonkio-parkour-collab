@@ -60,14 +60,15 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const result = lobby.addPlayer(socket.id, name);
+    if (result && result.error === "duplicateName") {
+      socket.emit("lobbyNameTaken", { reason: "Name already in use" });
+      return;
+    }
+
     lobby.addPlayer(socket.id, name);
 
-    // If a game is currently active, immediately add the joiner to the current game's participants
-    // so they appear in player lists, can vote, and receive the live snapshot.
-    // game.addParticipant will broadcast lobby & game state and will emit the personal gameSnapshot.
-    if (game.active) {
-      game.addParticipant(socket.id);
-    }
+
   });
 
   socket.on(EVENTS.SET_READY, (isReady) => {

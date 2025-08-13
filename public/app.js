@@ -10,6 +10,7 @@ import { showToast } from "./utils-client.js";
 import { getSpawnDiameter } from "./utils-client.js";
 import { distance, computeAngleDeg } from "./utils-client.js";
 
+
 function init() {
   UI.init();
   bindUIEvents();
@@ -17,11 +18,17 @@ function init() {
   Network.onLobbyFull(({ max }) => {
     alert(`Sorry, the lobby is full (max ${max} players).`);
   });
+
+  Network.onLobbyNameTaken(({ reason }) => {
+    alert(reason); // or show in UI
+  });
+
+  
   Network.onConnect((id) => State.set("playerId", id));
   Network.onGameInProgress(
     () =>
       UI.show("home") ||
-      UI.showLobbyMessage("Game in progress. Choose a name to join"),
+      UI.showLobbyMessage("Game in progress. Choose a name and set 'Ready' to join."),
   );
   Network.onLobbyUpdate(({ players }) => {
     State.set("lobbyPlayers", players || []);
@@ -137,9 +144,10 @@ function init() {
   });
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
-    UI.hide("lobbyMessage");
+
     UI.hide("canvasWrap");
     UI.show("home");
+    UI.showLobbyMessage("Drawing will start when 2 players are ready."),
     UI.resetControls();
     UI.setEndReason(
       reason === "voted"

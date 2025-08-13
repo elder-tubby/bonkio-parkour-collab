@@ -365,6 +365,8 @@ export function handleCanvasDragEnd(evt) {
 }
 
 export function handleKeyCommands(ev) {
+  if (!State.get("gameActive")) return;
+
   const chatInput = UI.elems.chatInput;
   if (document.activeElement === chatInput) return;
 
@@ -395,8 +397,8 @@ export function handleKeyCommands(ev) {
   // modifiers-based adjustments (only when a line is selected)
   const sel = State.get("selectedLineId");
   if (sel) {
-    // CTRL + Left/Right => width
-    if (ev.ctrlKey && (key === "ArrowLeft" || key === "ArrowRight")) {
+    // ALT + Left/Right => width
+    if (ev.altKey && (key === "ArrowLeft" || key === "ArrowRight")) {
       ev.preventDefault();
       const step = ev.shiftKey ? 10 : 1;
       const delta = key === "ArrowLeft" ? -step : step;
@@ -404,8 +406,8 @@ export function handleKeyCommands(ev) {
       return;
     }
 
-    // CTRL + Up/Down => height (this addresses your bug)
-    if (ev.ctrlKey && (key === "ArrowUp" || key === "ArrowDown")) {
+    // ALT + Up/Down => height (this addresses your bug)
+    if (ev.altKey && (key === "ArrowUp" || key === "ArrowDown")) {
       ev.preventDefault();
       const step = ev.shiftKey ? 10 : 1;
       const delta = key === "ArrowUp" ? step : -step;
@@ -453,7 +455,6 @@ export function handleKeyCommands(ev) {
   Canvas.draw();
 }
 
-
 // small helper: schedule network move to avoid spamming server
 const moveTimeouts = new Map();
 function scheduleMoveLine(id, start, end, delay = 80) {
@@ -469,14 +470,14 @@ function scheduleMoveLine(id, start, end, delay = 80) {
 // Arrow state & animation loop
 const _arrowState = {
   keys: new Set(), // currently pressed arrow keys
-  anim: null,      // requestAnimationFrame id
-  last: 0,         // last timestamp
-  shift: false,    // whether shift is down (fast)
+  anim: null, // requestAnimationFrame id
+  last: 0, // last timestamp
+  shift: false, // whether shift is down (fast)
 };
 
 // base speeds (px/sec)
-const BASE_SPEED = 60;    // default hold speed (approx)
-const FAST_MULT = 4;      // when Shift held
+const BASE_SPEED = 60; // default hold speed (approx)
+const FAST_MULT = 4; // when Shift held
 
 function _arrowLoop(now) {
   if (!_arrowState.last) _arrowState.last = now;
@@ -490,7 +491,8 @@ function _arrowLoop(now) {
   }
 
   // compute direction from set
-  let dx = 0, dy = 0;
+  let dx = 0,
+    dy = 0;
   if (_arrowState.keys.has("ArrowLeft")) dx -= 1;
   if (_arrowState.keys.has("ArrowRight")) dx += 1;
   if (_arrowState.keys.has("ArrowUp")) dy -= 1;
@@ -594,7 +596,6 @@ if (typeof window !== "undefined" && !window.__arrowControlsInstalled) {
 // make sure to attach BOTH events
 // window.addEventListener("keydown", handleArrowNudge);
 // window.addEventListener("keyup", handleArrowNudge);
-
 
 function midpoint(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };

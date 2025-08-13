@@ -31,8 +31,19 @@ class GameManager {
 
   start() {
     this.active = true;
-    this.capZone = { x: null, y: null, width: 30, height: 18.5, dragging: false }
-    this.participants = Object.keys(this.lobby.players);
+    this.capZone = {
+      x: null,
+      y: null,
+      width: 30,
+      height: 18.5,
+      dragging: false,
+    };
+    // Only lock in players who are ready
+    // this.lobby.players is a map socketId => { id, name, ready, ... }
+    this.participants = Object.keys(this.lobby.players).filter((id) => {
+      const p = this.lobby.players[id];
+      return p && p.ready;
+    });
     this.votes = this.participants.reduce((acc, id) => {
       acc[id] = false;
       return acc;
@@ -43,9 +54,18 @@ class GameManager {
     });
 
     this.lines = [];
-    this.io.emit(EVENTS.START, this.getStartPayload());
+    // Only notify actual participants
+    this.participants.forEach((id) => {
+      const sock = this.io.sockets.sockets.get(id);
+      if (sock) sock.emit(EVENTS.START, this.getStartPayload());
+    });
     this.broadcastGameState();
     this.lobby.broadcastLobby();
+    Object.keys(this.lobby.players)
+      .filter((id) => !this.participants.includes(id))
+      .forEach((id) => {
+        this.io.to(id).emit(EVENTS.GAME_IN_PROGRESS);
+      });
   }
 
   getStartPayload() {
@@ -244,6 +264,16 @@ class GameManager {
     } else {
       this.broadcastGameState();
     }
+  }
+
+  // Keep canonical numbering and broadcast the full authoritative list
+  broadcastLines() {
+    // Ensure stable order and 1-based numbering
+    this.lines = (this.lines || []).map((l, idx) => ({
+      ...l,
+      number: idx + 1,
+    }));
+    this.io.emit("linesState", { lines: this.lines });
   }
 
   deleteLine(playerId, lineId) {

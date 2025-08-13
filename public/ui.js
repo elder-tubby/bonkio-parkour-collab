@@ -151,61 +151,62 @@ class UI {
     rightCol.style.minWidth = "240px";
 
     function makeSliderRow(id, labelText, min, max, defaultVal) {
-      const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "8px";
-      row.style.flex = "1";
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "8px";
+    row.style.flex = "1";
 
-      // split label into main + parentheses
-      const label = document.createElement("label");
-      label.setAttribute("for", id);
+    // split label into main + parentheses
+    const label = document.createElement("label");
+    label.setAttribute("for", id);
 
-      const match = labelText.match(/^([^(]+)(\(.*\))$/); // split at parentheses
-      if (match) {
-        const mainSpan = document.createElement("span");
-        mainSpan.textContent = match[1].trim() + " ";
-        const smallSpan = document.createElement("span");
-        smallSpan.textContent = match[2];
-        smallSpan.style.fontSize = "10px"; // smaller text in parentheses
-        smallSpan.style.opacity = "0.7";   // optional subtle fade
-        label.appendChild(mainSpan);
-        label.appendChild(smallSpan);
-      } else {
-        label.textContent = labelText;
-      }
-
-      const input = document.createElement("input");
-      input.type = "range";
-      input.id = id;
-      input.min = min;
-      input.max = max;
-      input.value = defaultVal;
-      input.style.flex = "2";
-
-      const value = document.createElement("div");
-      value.id = `${id}Value`;
-      value.style.width = "56px";
-      value.style.textAlign = "right";
-      value.style.fontSize = "12px";
-
-      row.appendChild(label);
-      row.appendChild(input);
-      row.appendChild(value);
-
-      return { row, input, value };
+    const match = labelText.match(/^([^(]+)(\(.*\))$/); // split at parentheses
+    if (match) {
+    const mainSpan = document.createElement("span");
+    mainSpan.textContent = match[1].trim() + " ";
+    const smallSpan = document.createElement("span");
+    smallSpan.textContent = match[2];
+    smallSpan.style.fontSize = "10px"; // smaller text in parentheses
+    smallSpan.style.opacity = "0.7"; // optional subtle fade
+    label.appendChild(mainSpan);
+    label.appendChild(smallSpan);
+    } else {
+    label.textContent = labelText;
     }
 
+    const input = document.createElement("input");
+    input.type = "range";
+    input.id = id;
+    input.min = min;
+    input.max = max;
+    input.value = defaultVal;
+    input.style.flex = "2";
+
+    const value = document.createElement("div");
+    value.id = `${id}Value`;
+    value.style.width = "56px";
+    value.style.textAlign = "right";
+    value.style.fontSize = "12px";
+
+    row.appendChild(label);
+    row.appendChild(input);
+    row.appendChild(value);
+
+    return { row, input, value };
+    }
+
+    want to set this font to lexend using inline css
     const w = makeSliderRow(
       "lineWidthSlider",
-      "Width (CTRL + L/R)",
+      "Width (ALT + L/R)",
       1,
       1000,
       100,
     );
     const h = makeSliderRow(
       "lineHeightSlider",
-      "Height (CTRL + U/D)",
+      "Height (ALT + U/D)",
       1,
       1000,
       4,
@@ -294,7 +295,7 @@ class UI {
 
   appendChat({ name, message }) {
     const p = document.createElement("p");
-    p.innerHTML = `<strong>${name}:</strong> ${message}`;
+    p.innerHTML = `<span class="chat-sender">${name}:</span> ${message}`;
     this.elems.chatMessages.appendChild(p);
     this.elems.chatMessages.scrollTop = this.elems.chatMessages.scrollHeight;
   }
@@ -340,7 +341,6 @@ class UI {
       this.elems.lineHeightValue.innerText = String(h);
     if (this.elems.lineAngleValue)
       this.elems.lineAngleValue.innerText = String(normalizeAngle(a));
-
   }
 }
 

@@ -26,8 +26,9 @@ class Canvas {
       return line.end;
     };
 
-    State.get("lines").forEach(
-      ({ id, start, end, symbol, type, width, height, angle }) => {
+    const lines = State.get("lines");
+    lines.forEach(
+      ({ id, start, end, symbol, type, width, height, angle }, index) => {
         const isSelected = id === State.get("selectedLineId");
 
         // compute drawing end using stored width/angle if present
@@ -74,10 +75,17 @@ class Canvas {
           ctx.stroke();
         }
 
-        // Username label
+        // Username and line number label
         if (symbol && !State.get("hideUsernames")) {
-          ctx.fillStyle = isSelected ? "yellow" : "white";
-          ctx.fillText(symbol, start.x + 5, start.y - 5);
+          
+          const lineNumber = index + 1;
+          const label = `${lineNumber} ${symbol}`;
+
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "black"; // outline
+          ctx.strokeText(label, start.x + 5, start.y - 5);
+          ctx.fillStyle = isSelected ? "yellow" : "#ccc";
+          ctx.fillText(label, start.x + 5, start.y - 5);
         }
 
         ctx.restore();
@@ -87,13 +95,17 @@ class Canvas {
     // Draw preview line if exists
     const preview = State.get("currentLine");
     if (preview) {
+      ctx.save(); // ✅ isolate preview styles
       ctx.strokeStyle = "white";
       ctx.lineWidth = 4;
+      ctx.lineCap = "round";      // optional but helps visibility
       ctx.beginPath();
       ctx.moveTo(preview.start.x, preview.start.y);
       ctx.lineTo(preview.end.x, preview.end.y);
       ctx.stroke();
+      ctx.restore(); // ✅ revert to previous canvas state
     }
+
 
     // Draw shared spawn circle
     const { x, y, diameter } = State.get("spawnCircle");

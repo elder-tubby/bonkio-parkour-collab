@@ -143,13 +143,13 @@
       .main-panel {
         display: flex;
         gap: var(--panel-gap);
-        align-items: flex-start;
+        align-items: stretch; /* Make all columns the same height */
       }
 
       /* LEFT SIDEBAR */
       .sidebar {
         width: 240px;
-        height: calc(var(--canvas-height) + 100px);
+        height: calc(var(--canvas-height) + 128px);
         background: var(--panel-bg);
         padding: 1rem;
         border-right: 1px solid var(--muted-border);
@@ -331,6 +331,8 @@
       /* CHAT */
       .chat-box {
         width: 260px;
+        height: calc(var(--canvas-height) + 128px);
+
         background: var(--panel-bg);
         padding: 1rem;
         border-left: 1px solid var(--muted-border);
@@ -343,6 +345,11 @@
         margin: 0;
         font-size: 1rem;
         color: #ddd;
+      }
+      .chat-sender {
+        color: #bbb; /* Elegant muted gray */
+        font-weight: 600; /* Slightly bold for emphasis */
+        margin-right: 4px; /* Small gap after the name */
       }
 
       #chatMessages {
@@ -556,7 +563,18 @@
               >.
             </li>
             <li style="margin-bottom: 0.4rem">
-              All code is available on elder-tubby's GitHub.
+              All code is available on elder-tubby's
+              <a
+                href="https://github.com/elder-tubby"
+                target="_blank"
+                style="color: #708090; text-decoration: none"
+                onmouseover="this.style.textDecoration='underline'"
+                onmouseout="this.style.textDecoration='none'"
+              >
+                GitHub
+                <span style="text-decoration: none">&#x2197;</span>
+              </a>
+              .
             </li>
           </ul>
         </div>
@@ -571,16 +589,14 @@
             autocomplete="off"
             maxlength="26"
           />
-          <button id="joinBtn">Join Lobby</button>
+          <button id="joinBtn">Set Name</button>
 
           <div class="inline-check">
             <input type="checkbox" id="readyCheckbox" />
             <label for="readyCheckbox">Ready</label>
           </div>
 
-          <p style="font-size: 14px; margin-top: 1rem">
-            Drawing will start when 2 players are ready.
-          </p>
+          <p style="font-size: 14px; margin-top: 1rem"></p>
 
           <p
             id="lobbyMessage"
@@ -588,10 +604,10 @@
               color: var(--accent);
               font-size: 14px;
               margin-top: 0.5rem;
-              display: none;
+              display: block;
             "
           >
-            A game is already in progress. Please wait for the next round.
+            Drawing will start when 2 players are ready.
           </p>
         </div>
 
