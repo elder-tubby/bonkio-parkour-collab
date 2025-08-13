@@ -23,6 +23,24 @@ export function sendChat(message) {
   socket.emit("chatMessage", message);
 }
 
+export function deleteLine(lineId) {
+  socket.emit("deleteLine", lineId);
+}
+
+export function changeLineType(payload) {
+  socket.emit("changeLineType", payload);
+}
+
+// New: change line properties (width, height, angle)
+export function changeLineProps(payload) {
+  // payload: { id, width?, height?, angle? }
+  socket.emit("changeLineProps", payload);
+}
+
+export function moveLine(payload) {
+  socket.emit("moveLine", payload);
+}
+
 // Handlers
 export function onLobbyUpdate(cb) {
   socket.on("lobbyUpdate", cb);
@@ -60,10 +78,6 @@ export function onConnect(cb) {
   socket.on("connect", () => cb(socket.id));
 }
 
-export function deleteLine(lineId) {
-  socket.emit("deleteLine", lineId);
-}
-
 export function onLineDeleted(cb) {
   socket.on("lineDeleted", cb);
 }
@@ -72,20 +86,18 @@ export function onLineTypeChanged(handler) {
   socket.on("lineTypeChanged", handler);
 }
 
-export function changeLineType(payload) {
-  socket.emit("changeLineType", payload);
+// New: clients can listen to property updates
+export function onLinePropsChanged(handler) {
+  socket.on("linePropsChanged", handler);
 }
 
-export function emitSpawnCircleMove(x, y) {
-  socket.emit("spawnCircleMove", { x, y });
+// lineMoved event (server now also includes width & angle when applicable)
+export function onLineMoved(cb) {
+  socket.on("lineMoved", cb);
 }
 
 export function onSpawnCircleMove(cb) {
   socket.on("spawnCircleMove", cb);
-}
-
-export function emitCapZoneMove(x, y) {
-  socket.emit("capZoneMove", { x, y });
 }
 
 export function onCapZoneMove(cb) {
@@ -94,6 +106,14 @@ export function onCapZoneMove(cb) {
 
 export function onChatError(cb) {
   socket.on("chatError", cb);
+}
+
+export function emitSpawnCircleMove(x, y) {
+  socket.emit("spawnCircleMove", { x, y });
+}
+
+export function emitCapZoneMove(x, y) {
+  socket.emit("capZoneMove", { x, y });
 }
 
 export function emitSpawnSizeChange(size) {
@@ -106,12 +126,4 @@ export function onSpawnSizeChange(cb) {
 
 export function onGameSnapshot(cb) {
   socket.on("gameSnapshot", cb);
-}
-
-export function moveLine(payload) {
-  socket.emit("moveLine", payload);
-}
-
-export function onLineMoved(cb) {
-  socket.on("lineMoved", cb);
 }

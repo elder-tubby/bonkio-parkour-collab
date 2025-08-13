@@ -17,6 +17,61 @@ import {
   moveLine as networkMoveLine,
 } from "./network.js";
 
+const pendingSends = new Map(); // lineId -> timeoutId
+const pendingProps = new Map(); // lineId -> { width?, height?, angle? }
+let lastSelectedLineId = null;
+const PROP_DEBOUNCE_MS = 150;
+
+function scheduleSendProps(lineId, props) {
+  if (!lineId) return;
+  const existing = pendingProps.get(lineId) || {};
+  pendingProps.set(lineId, { ...existing, ...props });
+
+  const t = pendingSends.get(lineId);
+  if (t) clearTimeout(t);
+
+  const to = setTimeout(() => {
+    sendPendingProps(lineId);
+  }, PROP_DEBOUNCE_MS);
+
+  pendingSends.set(lineId, to);
+}
+
+function sendPendingProps(lineId) {
+  const props = pendingProps.get(lineId);
+  if (!props) return;
+  pendingProps.delete(lineId);
+
+  const to = pendingSends.get(lineId);
+  if (to) {
+    clearTimeout(to);
+    pendingSends.delete(lineId);
+  }
+
+  // send to server (Network.changeLineProps expects id + props)
+  Network.changeLineProps({ id: lineId, ...props });
+}
+
+// Flush pending sends for a given id (called on deselect etc.)
+function flushPendingProps(lineId) {
+  if (!lineId) return;
+  if (pendingSends.has(lineId) || pendingProps.has(lineId)) {
+    sendPendingProps(lineId);
+  }
+}
+
+// Watch selection changes to flush pending sends when a line is deselected
+State.onChange((key, val) => {
+  if (key !== "selectedLineId") return;
+  const newSelected = val;
+  const prev = lastSelectedLineId;
+  if (prev && prev !== newSelected) {
+    // selected changed — flush pending props for the old one immediately
+    flushPendingProps(prev);
+  }
+  lastSelectedLineId = newSelected;
+});
+
 /**
  * High-level handlers exported for use elsewhere
  * - keep signatures stable so other modules still call the same names
@@ -106,6 +161,27 @@ function pointFromEventOnCanvas(evt) {
   return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
 }
 
+// helper math
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+function degToRad(d) {
+  return (d * Math.PI) / 180;
+}
+function radToDeg(r) {
+  return (r * 180) / Math.PI;
+}
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+function computeAngleDeg(a, b) {
+  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+}
+function endpointFromStartAngleWidth(start, angleDeg, width) {
+  const r = degToRad(angleDeg);
+  return { x: start.x + Math.cos(r) * width, y: start.y + Math.sin(r) * width };
+}
+
 // Called when user presses mouse on canvas. Will either start drawing, start dragging a line,
 // or begin dragging spawn/cap zone depending on hit-test.
 export function handleCanvasDown(evt) {
@@ -158,6 +234,8 @@ export function handleCanvasDown(evt) {
   State.set("selectedLineId", null);
   State.set("startPt", pt);
   State.set("currentLine", null);
+  // remember down time so a quick click doesn't create a tiny line
+  State.set("mouseDownTime", Date.now());
   Canvas.draw();
 }
 
@@ -224,14 +302,25 @@ export function handleCanvasUp(evt) {
     return;
   }
 
+  // prevent accidental tiny lines on quick clicks:
+  const downTime = State.get("mouseDownTime") || 0;
+  const CLICK_THRESHOLD_MS = 180;
+  const now = Date.now();
+  const dt = now - downTime;
   // clear preview and decide if it was a significant drag
   State.set("currentLine", null);
+
+  // if it was a very quick click, treat as deselect rather than creating a tiny line
+  if (dt < CLICK_THRESHOLD_MS) {
+    State.set("startPt", null);
+    return;
+  }
+
   const dx = pt.x - start.x;
   const dy = pt.y - start.y;
   const distSq = dx * dx + dy * dy;
-  const MIN_DIST = 25; // minimum squared distance to treat as a line
-
-  if (distSq < MIN_DIST) {
+  const MIN_DIST_SQ = 25; // squared distance threshold (5px)
+  if (distSq < MIN_DIST_SQ) {
     State.set("startPt", null);
     return;
   }
@@ -254,10 +343,20 @@ export function handleCanvasMoveDuringDrag(evt) {
 
   const updated = State.get("lines").map((l) => {
     if (l.id !== dragging.id) return l;
+    const newStart = {
+      x: dragging.origStart.x + dx,
+      y: dragging.origStart.y + dy,
+    };
+    const newEnd = { x: dragging.origEnd.x + dx, y: dragging.origEnd.y + dy };
+    // recompute width & angle to match new endpoints
+    const newWidth = distance(newStart, newEnd);
+    const newAngle = computeAngleDeg(newStart, newEnd);
     return {
       ...l,
-      start: { x: dragging.origStart.x + dx, y: dragging.origStart.y + dy },
-      end: { x: dragging.origEnd.x + dx, y: dragging.origEnd.y + dy },
+      start: newStart,
+      end: newEnd,
+      width: newWidth,
+      angle: newAngle,
     };
   });
 
@@ -283,16 +382,14 @@ export function handleCanvasDragEnd(evt) {
   Canvas.draw();
 }
 
-// ---- Keyboard behavior / hotkeys ----
 export function handleKeyCommands(ev) {
-  // ignore if chat input focused
   const chatInput = UI.elems.chatInput;
   if (document.activeElement === chatInput) return;
 
-  // global hotkeys
-  const key = ev.key.toLowerCase();
+  const key = ev.key;
+  const lower = key.toLowerCase();
 
-  if (key === "h") {
+  if (lower === "h") {
     const current = State.get("hideUsernames");
     State.set("hideUsernames", !current);
     if (UI.elems.hideUsernamesCheckbox)
@@ -301,26 +398,54 @@ export function handleKeyCommands(ev) {
     return;
   }
 
-  const isCtrlZ = ev.ctrlKey && (ev.key === "z" || ev.key === "Z");
+  const isCtrlZ = ev.ctrlKey && (key === "z" || key === "Z");
   if (isCtrlZ) {
     ev.preventDefault();
     handleUndoLastLine();
     return;
   }
 
-  if (key === "c") {
+  if (lower === "c") {
     copyLineInfo(State.get("lines"));
     return;
   }
 
-  // line-specific hotkeys only if there's a selection
-  const lineId = State.get("selectedLineId");
-  if (!lineId) {
-    // also allow Enter focusing chat when in-game (handled elsewhere)
-    return;
+  // modifiers-based adjustments (only when a line is selected)
+  const sel = State.get("selectedLineId");
+  if (sel) {
+    // CTRL + Left/Right => width
+    if (ev.ctrlKey && (key === "ArrowLeft" || key === "ArrowRight")) {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 10 : 1;
+      const delta = key === "ArrowLeft" ? -step : step;
+      modifySelectedLineWidth(delta);
+      return;
+    }
+
+    // CTRL + Up/Down => height (this addresses your bug)
+    if (ev.ctrlKey && (key === "ArrowUp" || key === "ArrowDown")) {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 10 : 1;
+      const delta = key === "ArrowUp" ? step : -step;
+      modifySelectedLineHeight(delta);
+      return;
+    }
+
+    // SHIFT + Left/Right => angle
+    if (ev.shiftKey && (key === "ArrowLeft" || key === "ArrowRight")) {
+      ev.preventDefault();
+      const step = ev.ctrlKey ? 10 : 1;
+      const delta = key === "ArrowLeft" ? -step : step;
+      modifySelectedLineAngle(delta);
+      return;
+    }
   }
 
-  switch (key) {
+  // line letter shortcuts (if selected)
+  const lineId = State.get("selectedLineId");
+  if (!lineId) return;
+
+  switch (lower) {
     case "b":
       Network.changeLineType({ id: lineId, type: "bouncy" });
       updateLineTypeUI("bouncy");
@@ -355,6 +480,9 @@ export function handleArrowNudge(ev) {
   const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
   if (!arrows.includes(ev.key)) return;
 
+  // If ctrl or shift are used we handle those combos in handleKeyCommands
+  if (ev.ctrlKey || ev.shiftKey) return;
+
   ev.preventDefault();
   const step = ev.shiftKey ? 5 : 1;
   let dx = 0,
@@ -375,9 +503,98 @@ export function handleArrowNudge(ev) {
 
   State.set("lines", updated);
   Canvas.draw();
+  const line = updated.find((l) => l.id === sel);
+  if (line) scheduleMoveLine(sel, line.start, line.end);
+}
+
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function halfVectorFromAngleWidth(angleDeg, width) {
+  const r = degToRad(angleDeg);
+  return { x: Math.cos(r) * (width / 2), y: Math.sin(r) * (width / 2) };
+}
+
+function modifySelectedLineWidth(delta) {
+  const sel = State.get("selectedLineId");
+  if (!sel) return;
+  const lines = State.get("lines").map((l) => {
+    if (l.id !== sel) return l;
+    const curWidth =
+      typeof l.width === "number" ? l.width : distance(l.start, l.end);
+    const newWidth = clamp(curWidth + delta, 1, 1000);
+    // compute center and derive new endpoints so the line grows/shrinks symmetrically
+    const center = midpoint(l.start, l.end);
+    const a =
+      typeof l.angle === "number" ? l.angle : computeAngleDeg(l.start, l.end);
+    const hv = halfVectorFromAngleWidth(a, newWidth);
+    const newStart = { x: center.x - hv.x, y: center.y - hv.y };
+    const newEnd = { x: center.x + hv.x, y: center.y + hv.y };
+    return { ...l, width: newWidth, start: newStart, end: newEnd };
+  });
+  State.set("lines", lines);
+  Canvas.draw();
+  const line = lines.find((l) => l.id === sel);
+  if (line) {
+    // schedule send (debounced)
+    scheduleSendProps(sel, { width: line.width });
+  }
+  UI.updateLineEditorValues(line);
+}
+
+function modifySelectedLineHeight(delta) {
+  const sel = State.get("selectedLineId");
+  if (!sel) return;
+  const updated = State.get("lines").map((l) => {
+    if (l.id !== sel) return l;
+    const cur = typeof l.height === "number" ? l.height : 4;
+    const next = Math.max(1, Math.min(1000, cur + delta));
+    return { ...l, height: next };
+  });
+  State.set("lines", updated);
+  Canvas.draw();
 
   const line = updated.find((l) => l.id === sel);
-  if (line) networkMoveLine({ id: sel, start: line.start, end: line.end });
+  if (line) {
+    // schedule debounced send (you should have scheduleSendProps in this file from prior snippet)
+    scheduleSendProps(sel, { height: line.height });
+    UI.updateLineEditorValues(line);
+  }
+}
+
+function modifySelectedLineAngle(delta) {
+  const sel = State.get("selectedLineId");
+  if (!sel) return;
+  const lines = State.get("lines").map((l) => {
+    if (l.id !== sel) return l;
+    const curAngle =
+      typeof l.angle === "number" ? l.angle : computeAngleDeg(l.start, l.end);
+    let newAngle = (curAngle + delta) % 360;
+    if (newAngle < 0) newAngle += 360;
+    // rotate around center
+    const center = midpoint(l.start, l.end);
+    const w = typeof l.width === "number" ? l.width : distance(l.start, l.end);
+    const hv = halfVectorFromAngleWidth(newAngle, w);
+    const newStart = { x: center.x - hv.x, y: center.y - hv.y };
+    const newEnd = { x: center.x + hv.x, y: center.y + hv.y };
+    return { ...l, angle: newAngle, start: newStart, end: newEnd };
+  });
+  State.set("lines", lines);
+  Canvas.draw();
+  const line = lines.find((l) => l.id === sel);
+  if (line) scheduleSendProps(sel, { angle: line.angle });
+  UI.updateLineEditorValues(line);
+}
+
+const moveTimeouts = new Map();
+function scheduleMoveLine(id, start, end, delay = 80) {
+  if (moveTimeouts.has(id)) clearTimeout(moveTimeouts.get(id));
+  const t = setTimeout(() => {
+    Network.moveLine({ id, start, end });
+    moveTimeouts.delete(id);
+  }, delay);
+  moveTimeouts.set(id, t);
 }
 
 // ---- UI binding: attach DOM listeners here (keeps all listeners in one place) ----
@@ -416,6 +633,95 @@ export function bindUIEvents() {
     if (e.spawnSizeValue) e.spawnSizeValue.innerText = String(mapSize);
 
     e.spawnSizeSlider.addEventListener("input", handleSpawnSliderInput);
+  }
+
+  // line editor sliders — listen for changes if present
+  // width
+  if (e.lineWidthSlider) {
+    e.lineWidthSlider.addEventListener("input", () => {
+      const sel = State.get("selectedLineId");
+      if (!sel) return;
+      const val = Number(e.lineWidthSlider.value);
+      const lines = State.get("lines").map((l) => {
+        if (l.id !== sel) return l;
+        // keep center-based growth
+        const center = {
+          x: (l.start.x + l.end.x) / 2,
+          y: (l.start.y + l.end.y) / 2,
+        };
+        const angle =
+          typeof l.angle === "number"
+            ? l.angle
+            : (Math.atan2(l.end.y - l.start.y, l.end.x - l.start.x) * 180) /
+              Math.PI;
+        const r = (angle * Math.PI) / 180;
+        const halfX = Math.cos(r) * (val / 2);
+        const halfY = Math.sin(r) * (val / 2);
+        return {
+          ...l,
+          width: val,
+          start: { x: center.x - halfX, y: center.y - halfY },
+          end: { x: center.x + halfX, y: center.y + halfY },
+        };
+      });
+      State.set("lines", lines);
+      Canvas.draw();
+      // update numeric display
+      if (e.lineWidthValue) e.lineWidthValue.innerText = String(val);
+      // send to server (debounced preferred, but immediate for reliability)
+      Network.changeLineProps({ id: sel, width: val });
+    });
+  }
+
+  // height
+  if (e.lineHeightSlider) {
+    e.lineHeightSlider.addEventListener("input", () => {
+      const sel = State.get("selectedLineId");
+      if (!sel) return;
+      const val = Number(e.lineHeightSlider.value);
+      const lines = State.get("lines").map((l) =>
+        l.id !== sel ? l : { ...l, height: val },
+      );
+      State.set("lines", lines);
+      Canvas.draw();
+      if (e.lineHeightValue) e.lineHeightValue.innerText = String(val);
+      Network.changeLineProps({ id: sel, height: val });
+    });
+  }
+
+  // angle
+  if (e.lineAngleSlider) {
+    e.lineAngleSlider.addEventListener("input", () => {
+      const sel = State.get("selectedLineId");
+      if (!sel) return;
+      const val = Number(e.lineAngleSlider.value);
+      const lines = State.get("lines").map((l) => {
+        if (l.id !== sel) return l;
+        const center = {
+          x: (l.start.x + l.end.x) / 2,
+          y: (l.start.y + l.end.y) / 2,
+        };
+        const r = (val * Math.PI) / 180;
+        const halfX =
+          Math.cos(r) *
+          ((l.width || Math.hypot(l.end.x - l.start.x, l.end.y - l.start.y)) /
+            2);
+        const halfY =
+          Math.sin(r) *
+          ((l.width || Math.hypot(l.end.x - l.start.x, l.end.y - l.start.y)) /
+            2);
+        return {
+          ...l,
+          angle: val,
+          start: { x: center.x - halfX, y: center.y - halfY },
+          end: { x: center.x + halfX, y: center.y + halfY },
+        };
+      });
+      State.set("lines", lines);
+      Canvas.draw();
+      if (e.lineAngleValue) e.lineAngleValue.innerText = String(val);
+      Network.changeLineProps({ id: sel, angle: val });
+    });
   }
 
   // canvas mouse events (use centralized handlers)

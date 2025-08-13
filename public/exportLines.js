@@ -1,5 +1,5 @@
 import State from "./state.js";
-import { showToast } from "./utils-client.js"; 
+import { showToast } from "./utils-client.js";
 
 export function copyLineInfo(lines) {
   const cz = State.get("capZone");
@@ -73,8 +73,17 @@ export function copyLineInfo(lines) {
 
     const { x: extX, y: extY } = gameToExternal(centerX, centerY);
 
-    const length = Math.hypot(dx, dy); // now in external scale
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const length =
+      typeof l.width === "number"
+        ? l.width * ((scaleX + scaleY) / 2)
+        : Math.hypot(dx, dy); // scaled length
+    const angle =
+      typeof l.angle === "number"
+        ? l.angle
+        : Math.atan2(dy, dx) * (180 / Math.PI);
+
+    const thicknessLogical = typeof l.height === "number" ? l.height : 4; // logical units
+    const thicknessScaled = thicknessLogical * scaleY; // scale vertically for export
 
     let isBouncy = false;
     let isDeath = false;
@@ -102,10 +111,10 @@ export function copyLineInfo(lines) {
       color,
       isBgLine: false,
       noGrapple: true,
-      x: extX, // external coordinate
-      y: extY, // external coordinate
-      width: length, // now scaled to external canvas
-      height: 4.452 * scaleY, // thickness scaled vertically
+      x: extX,
+      y: extY,
+      width: length,
+      height: thicknessScaled,
       angle,
       isBouncy,
       isDeath,
@@ -113,10 +122,10 @@ export function copyLineInfo(lines) {
     };
   });
   const { x: extSpawnX, y: extSpawnY } = gameToExternal(spawn.x, spawn.y);
-const mapSize = State.get("mapSize");
+  const mapSize = State.get("mapSize");
   const out = {
     version: 1,
-    spawn: { spawnX: extSpawnX - 935, spawnY: extSpawnY - 350},
+    spawn: { spawnX: extSpawnX - 935, spawnY: extSpawnY - 350 },
     mapSize: mapSize,
     lines: [bgLine, capZoneLine, ...userLines],
   };
@@ -126,8 +135,6 @@ const mapSize = State.get("mapSize");
     .then(() => showToast("Copied!"))
     .catch((e) => showToast("Copy failed: " + e));
 }
-
-
 
 function gameToExternal(gameX, gameY) {
   const GW = canvas.width; // 650

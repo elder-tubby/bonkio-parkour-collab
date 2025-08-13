@@ -7,6 +7,8 @@ const EVENTS = {
   END: "endGame",
   LINE_DELETED: "lineDeleted",
   LINE_TYPE_CHANGED: "lineTypeChanged",
+  LINE_PROPS_CHANGED: "linePropsChanged",
+  LINE_MOVED: "lineMoved",
 };
 const { v4: uuidv4 } = require("uuid");
 
@@ -24,7 +26,7 @@ class GameManager {
     this.mapSize = 9;
     this.participants = []; // socketIds locked in at start (or added during game)
     this.votes = {}; // socketId → boolean
-    this.lines = []; // persistent list of lines for the round
+    this.lines = []; // persistent list of lines for the round: { id, playerId, start, end, username, symbol, type, width, height, angle }
   }
 
   start() {
@@ -117,18 +119,41 @@ class GameManager {
     const symbol = player.symbol;
     const id = uuidv4();
 
+    // compute initial width/angle/height from endpoints
+    const start = line.start;
+    const end = line.end;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const width = Math.hypot(dx, dy);
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const height = 4; // default thickness
+
     const stored = {
       id,
       playerId,
-      start: line.start,
-      end: line.end,
+      start,
+      end,
       username,
       symbol,
       type: "none",
+      width,
+      height,
+      angle,
     };
     this.lines.push(stored);
 
-    this.io.emit(EVENTS.LINE, { id, playerId, line, username, symbol });
+    // emit payload including width/height/angle
+    this.io.emit(EVENTS.LINE, {
+      id,
+      playerId,
+      line,
+      username,
+      symbol,
+      width,
+      height,
+      angle,
+      type: "none",
+    });
   }
 
   // gameManager.js — addParticipant
@@ -253,6 +278,74 @@ class GameManager {
     this.io.emit(EVENTS.LINE_TYPE_CHANGED, { id: lineId, type });
   }
 
+  changeLineProperties(playerId, lineId, props) {
+    if (!this.active || !this.participants.includes(playerId)) return;
+
+    const line = this.lines.find((l) => l.id === lineId);
+    if (!line) return;
+
+    const ownerId = line.playerId;
+    const ownerStillPresent = this.participants.includes(ownerId);
+
+    // If owner still present, only they may change properties
+    if (ownerStillPresent && ownerId !== playerId) return;
+
+    // sanitize / clamp props
+    const allowed = {};
+    if (typeof props.width === "number")
+      allowed.width = Math.max(1, Math.min(1000, props.width));
+    if (typeof props.height === "number")
+      allowed.height = Math.max(1, Math.min(1000, props.height));
+    if (typeof props.angle === "number") {
+      let a = props.angle % 360;
+      if (a < 0) a += 360;
+      allowed.angle = a;
+    }
+
+    // Compute center from current endpoints (use existing start/end)
+    const cur = this.lines.find((l) => l.id === lineId);
+    if (!cur) return;
+    const center = {
+      x: (cur.start.x + cur.end.x) / 2,
+      y: (cur.start.y + cur.end.y) / 2,
+    };
+
+    // Apply updates and recompute endpoints if width/angle changed
+    this.lines = this.lines.map((l) => {
+      if (l.id !== lineId) return l;
+      const updated = { ...l, ...allowed };
+
+      // If width/angle changed (or both), recompute start/end around center
+      if (allowed.width !== undefined || allowed.angle !== undefined) {
+        const w = updated.width;
+        const a =
+          typeof updated.angle === "number"
+            ? updated.angle
+            : updated.angle || 0;
+        const r = (a * Math.PI) / 180;
+        const halfX = Math.cos(r) * (w / 2);
+        const halfY = Math.sin(r) * (w / 2);
+        updated.start = { x: center.x - halfX, y: center.y - halfY };
+        updated.end = { x: center.x + halfX, y: center.y + halfY };
+      }
+
+      return updated;
+    });
+
+    // Fetch the updated line to broadcast exact coordinates/props
+    const newLine = this.lines.find((l) => l.id === lineId);
+
+    // Emit updated properties AND start/end so clients reflect identical transforms
+    this.io.emit("linePropsChanged", {
+      id: lineId,
+      width: newLine.width,
+      height: newLine.height,
+      angle: newLine.angle,
+      start: newLine.start,
+      end: newLine.end,
+    });
+  }
+
   // New: moveLine
   moveLine(playerId, { id, start, end }) {
     if (!this.active || !this.participants.includes(playerId)) return;
@@ -265,12 +358,22 @@ class GameManager {
     // If owner still present, only owner may move it
     if (ownerStillPresent && ownerId !== playerId) return;
 
-    // apply new coords
+    // apply new coords and recompute width/angle
     line.start = start;
     line.end = end;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    line.width = Math.hypot(dx, dy);
+    line.angle = (Math.atan2(dy, dx) * 180) / Math.PI;
 
     // Broadcast a dedicated event so clients can update in place
-    this.io.emit("lineMoved", { id, start, end });
+    this.io.emit(EVENTS.LINE_MOVED, {
+      id,
+      start,
+      end,
+      width: line.width,
+      angle: line.angle,
+    });
   }
 
   // setters so index.js handlers can update game state

@@ -1,65 +1,70 @@
-// utils-client.js
-
+// utils-client.js — replace existing getHitLineId implementation with this
 import State from "./state.js";
 import * as Network from "./network.js";
+/**
+ * helper: convert a line's width+angle into an endpoint if present, else use line.end
+ */
+function computeEnd(line) {
+  if (typeof line.width === "number" && typeof line.angle === "number") {
+    const r = (line.angle * Math.PI) / 180;
+    return {
+      x: line.start.x + Math.cos(r) * line.width,
+      y: line.start.y + Math.sin(r) * line.width,
+    };
+  }
+  return line.end;
+}
 
 /**
- * distance from point p to line segment ab
+ * point-to-segment distance (not squared)
  */
-function distToSegmentSquared(p, a, b) {
+function pointToSegmentDistance(p, a, b) {
   const vx = b.x - a.x;
   const vy = b.y - a.y;
   const wx = p.x - a.x;
   const wy = p.y - a.y;
   const c1 = vx * wx + vy * wy;
-  if (c1 <= 0) return wx * wx + wy * wy;
+  if (c1 <= 0) return Math.hypot(wx, wy);
   const c2 = vx * vx + vy * vy;
-  if (c2 <= c1) {
-    const dx = p.x - b.x;
-    const dy = p.y - b.y;
-    return dx * dx + dy * dy;
-  }
+  if (c2 <= c1) return Math.hypot(p.x - b.x, p.y - b.y);
   const t = c1 / c2;
   const projx = a.x + t * vx;
   const projy = a.y + t * vy;
-  const dx = p.x - projx;
-  const dy = p.y - projy;
-  return dx * dx + dy * dy;
+  return Math.hypot(p.x - projx, p.y - projy);
 }
 
 /**
  * returns a hit line id if the point is close enough (threshold)
- * allows selection if:
- *  - the line belongs to this client OR
- *  - the line-owner is not present in the lobby/participants (i.e., they left)
+ * Now takes the line's current height into account and respects width/angle endpoints.
  */
 export function getHitLineId(point) {
   const lines = State.get("lines") || [];
   const lobby = State.get("lobbyPlayers") || [];
   const currentPlayerId = State.get("playerId");
 
-  // map of present player ids for quick lookup (lobbyPlayers may be array)
   const presentIds = new Set((lobby || []).map((p) => p.id));
 
-  let best = null;
-  let bestDist = Infinity;
-  const THRESHOLD_SQ = 8 * 8; // clickable distance ~8px
+  // prefer topmost (last drawn) first
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const start = line.start;
+    const end = computeEnd(line);
 
-  for (const line of lines) {
-    const d2 = distToSegmentSquared(point, line.start, line.end);
-    if (d2 <= THRESHOLD_SQ && d2 < bestDist) {
-      // decide if selection allowed:
+    const dist = pointToSegmentDistance(point, start, end);
+
+    // clickable threshold: half the logical height, with a minimum for thin lines
+    const logicalHeight = typeof line.height === "number" ? line.height : 4;
+    const half = Math.max(8, logicalHeight / 2); // min 8px half-width for hit-testing
+
+    if (dist <= half) {
       const ownerId = line.playerId;
       const ownerPresent = presentIds.has(ownerId);
       const canSelect = ownerId === currentPlayerId || !ownerPresent;
-      if (canSelect) {
-        best = line.id;
-        bestDist = d2;
-      }
+      if (canSelect) return line.id;
     }
   }
 
-  return best;
+  return null;
 }
 
 export function updateLineTypeUI(type) {
@@ -183,4 +188,20 @@ export function getSpawnDiameter() {
   }
 
   return diameter;
+}
+
+// utils-client.js (append)
+export function getLineProps(l) {
+  const dx = l.end.x - l.start.x;
+  const dy = l.end.y - l.start.y;
+  const fallbackWidth = Math.hypot(dx, dy);
+
+  const width = typeof l.width === "number" ? l.width : fallbackWidth;
+  const height = typeof l.height === "number" ? l.height : 4; // default 4
+  const angle =
+    typeof l.angle === "number"
+      ? l.angle
+      : (Math.atan2(dy, dx) * 180) / Math.PI;
+
+  return { width, height, angle };
 }

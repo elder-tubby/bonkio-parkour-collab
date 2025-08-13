@@ -36,6 +36,7 @@ const EVENTS = {
   CHANGE_LINE_TYPE: "changeLineType",
   LINE_TYPE_CHANGED: "lineTypeChanged",
   MOVE_LINE: "moveLine",
+  CHANGE_LINE_PROPS: "changeLineProps", // NEW: client -> server
 };
 
 const MESSAGE_LIMIT = 5; // max messages
@@ -93,6 +94,17 @@ io.on("connection", (socket) => {
   // allow clients to request line moves
   socket.on(EVENTS.MOVE_LINE, ({ id, start, end }) => {
     game.moveLine(socket.id, { id, start, end });
+  });
+
+  // handle changeLineProps (width/height/angle)
+  socket.on(EVENTS.CHANGE_LINE_PROPS, (payload) => {
+    // payload: { id, width?, height?, angle? }
+    if (!payload || !payload.id) return;
+    game.changeLineProperties(socket.id, payload.id, {
+      width: payload.width,
+      height: payload.height,
+      angle: payload.angle,
+    });
   });
 
   socket.on("spawnSizeChange", ({ size }) => {
