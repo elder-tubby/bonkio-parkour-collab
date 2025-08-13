@@ -410,7 +410,14 @@
 
       .tips-list ul {
         padding-left: 1.1rem;
+        
       }
+
+      .hotkey-desc {
+        font-size: 0.85em;  /* smaller than main text */
+        color: #ccc;        /* optional lighter color */
+      }
+
 
       .tips-list::-webkit-scrollbar,
       .two-col-list::-webkit-scrollbar {
@@ -606,11 +613,26 @@
           <div class="box">
             <h3>Hotkeys</h3>
             <ul class="tips-list">
-              <li><strong>B</strong> – Bouncy</li>
-              <li><strong>D</strong> – Death</li>
-              <li><strong>N</strong> – Non-bouncy</li>
-              <li><strong>X</strong> – Delete</li>
-              <li><strong>CTRL Z</strong> – Delete last line</li>
+              <li>
+                <strong>B</strong> <span class="hotkey-desc">– Bouncy</span>
+              </li>
+              <li>
+                <strong>D</strong> <span class="hotkey-desc">– Death</span>
+              </li>
+              <li>
+                <strong>N</strong> <span class="hotkey-desc">– Non-bouncy</span>
+              </li>
+              <li>
+                <strong>X</strong> <span class="hotkey-desc">– Delete</span>
+              </li>
+              <li>
+                <strong>CTRL Z</strong>
+                <span class="hotkey-desc">– Delete last line</span>
+              </li>
+              <li>
+                <strong>Arrow keys</strong>
+                <span class="hotkey-desc">– Move line</span>
+              </li>
             </ul>
           </div>
         </div>

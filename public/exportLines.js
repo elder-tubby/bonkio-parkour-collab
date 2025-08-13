@@ -64,32 +64,55 @@ export function copyLineInfo(lines) {
 
   // Convert each user-drawn line into your target format
   const userLines = lines.map((l, i) => {
-    // Apply scale to delta before computing length
-    const dx = (l.end.x - l.start.x) * scaleX;
-    const dy = (l.end.y - l.start.y) * scaleY;
+    const hasWA = typeof l.width === "number" && typeof l.angle === "number";
 
-    const centerX = (l.start.x + l.end.x) / 2;
-    const centerY = (l.start.y + l.end.y) / 2;
+    // --- Compute center in game coords using the same geometry you draw with ---
+    let centerX, centerY;
+
+    if (hasWA) {
+      const rad = (l.angle * Math.PI) / 180;
+      const endDraw = {
+        x: l.start.x + Math.cos(rad) * l.width,
+        y: l.start.y + Math.sin(rad) * l.width,
+      };
+      centerX = (l.start.x + endDraw.x) / 2;
+      centerY = (l.start.y + endDraw.y) / 2;
+    } else {
+      centerX = (l.start.x + l.end.x) / 2;
+      centerY = (l.start.y + l.end.y) / 2;
+    }
 
     const { x: extX, y: extY } = gameToExternal(centerX, centerY);
 
-    const length =
-      typeof l.width === "number"
-        ? l.width * ((scaleX + scaleY) / 2)
-        : Math.hypot(dx, dy); // scaled length
-    const angle =
-      typeof l.angle === "number"
-        ? l.angle
-        : Math.atan2(dy, dx) * (180 / Math.PI);
+    // --- Exact exported length & angle ---
+    let length, angle;
 
-    const thicknessLogical = typeof l.height === "number" ? l.height : 4; // logical units
-    const thicknessScaled = thicknessLogical * scaleY; // scale vertically for export
+    if (hasWA) {
+      const rad = (l.angle * Math.PI) / 180;
+      // exact length under anisotropic scaling
+      length =
+        l.width * Math.hypot(Math.cos(rad) * scaleX, Math.sin(rad) * scaleY);
+
+      // exported (external-space) angle after anisotropic scaling
+      angle =
+        (Math.atan2(Math.sin(rad) * scaleY, Math.cos(rad) * scaleX) * 180) /
+        Math.PI;
+    } else {
+      // fallback to endpoints if width/angle not present
+      const dx = (l.end.x - l.start.x) * scaleX;
+      const dy = (l.end.y - l.start.y) * scaleY;
+      length = Math.hypot(dx, dy);
+      angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    }
+
+    // thickness (logical) → exported vertical scale
+    const thicknessLogical = typeof l.height === "number" ? l.height : 4;
+    const thicknessScaled = thicknessLogical * scaleY;
 
     let isBouncy = false;
     let isDeath = false;
     let bounciness;
     let color;
-
     switch (l.type) {
       case "bouncy":
         isBouncy = true;
@@ -113,14 +136,15 @@ export function copyLineInfo(lines) {
       noGrapple: true,
       x: extX,
       y: extY,
-      width: length,
+      width: length, // ✅ exact
       height: thicknessScaled,
-      angle,
+      angle, // ✅ external-space angle
       isBouncy,
       isDeath,
       bounciness,
     };
   });
+
   const { x: extSpawnX, y: extSpawnY } = gameToExternal(spawn.x, spawn.y);
   const mapSize = State.get("mapSize");
   const out = {

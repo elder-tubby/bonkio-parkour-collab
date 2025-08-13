@@ -153,21 +153,33 @@ class UI {
       row.style.display = "flex";
       row.style.alignItems = "center";
       row.style.gap = "8px";
+      row.style.flex = "1";
 
-      const label = document.createElement("div");
-      label.innerText = labelText;
-      label.style.width = "64px";
-      label.style.whiteSpace = "nowrap";
-      label.style.fontSize = "12px";
+      // split label into main + parentheses
+      const label = document.createElement("label");
+      label.setAttribute("for", id);
+
+      const match = labelText.match(/^([^(]+)(\(.*\))$/); // split at parentheses
+      if (match) {
+        const mainSpan = document.createElement("span");
+        mainSpan.textContent = match[1].trim() + " ";
+        const smallSpan = document.createElement("span");
+        smallSpan.textContent = match[2];
+        smallSpan.style.fontSize = "10px"; // smaller text in parentheses
+        smallSpan.style.opacity = "0.7";   // optional subtle fade
+        label.appendChild(mainSpan);
+        label.appendChild(smallSpan);
+      } else {
+        label.textContent = labelText;
+      }
 
       const input = document.createElement("input");
       input.type = "range";
       input.id = id;
-      input.min = String(min);
-      input.max = String(max);
-      input.value = String(defaultVal);
-      input.style.flex = "1";
-      input.style.marginRight = "6px";
+      input.min = min;
+      input.max = max;
+      input.value = defaultVal;
+      input.style.flex = "2";
 
       const value = document.createElement("div");
       value.id = `${id}Value`;
@@ -178,12 +190,31 @@ class UI {
       row.appendChild(label);
       row.appendChild(input);
       row.appendChild(value);
+
       return { row, input, value };
     }
 
-    const w = makeSliderRow("lineWidthSlider", "Width", 1, 1000, 100);
-    const h = makeSliderRow("lineHeightSlider", "Height", 1, 1000, 4);
-    const a = makeSliderRow("lineAngleSlider", "Angle", 0, 360, 0);
+    const w = makeSliderRow(
+      "lineWidthSlider",
+      "Width (CTRL + L/R)",
+      1,
+      1000,
+      100,
+    );
+    const h = makeSliderRow(
+      "lineHeightSlider",
+      "Height (CTRL + U/D)",
+      1,
+      1000,
+      4,
+    );
+    const a = makeSliderRow(
+      "lineAngleSlider",
+      "Angle (SHIFT + L/R)",
+      0,
+      360,
+      0,
+    );
 
     rightCol.appendChild(w.row);
     rightCol.appendChild(h.row);
