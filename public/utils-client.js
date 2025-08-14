@@ -230,3 +230,35 @@ export function computeAngleDeg(a, b) {
   return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
 }
 
+export function updateAllLinePropUIpointFromEventOnCanvas(evt) {
+  const canvas = UI.elems.canvas;
+  const rect = canvas.getBoundingClientRect();
+  return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
+}
+
+export function normalizeServerLine(payload) {
+  // incoming payload shape may be { id, playerId, line, username, symbol, width, height, angle, type }
+  if (!payload) return null;
+  const start = payload.start ?? payload.line?.start;
+  const end = payload.end ?? payload.line?.end;
+  return {
+    id: payload.id,
+    playerId: payload.playerId,
+    start,
+    end,
+    username: payload.username ?? "",
+    symbol: payload.symbol ?? "",
+    type: payload.type ?? "none",
+    width:
+      typeof payload.width === "number"
+        ? payload.width
+        : Math.hypot(end.x - start.x, end.y - start.y),
+    height: typeof payload.height === "number" ? payload.height : 4,
+    angle:
+      typeof payload.angle === "number"
+        ? payload.angle
+        : computeAngleDeg(start, end),
+  };
+}
+
+export function pointFromEventOnCanvas(evt) {}

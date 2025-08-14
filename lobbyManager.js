@@ -1,12 +1,9 @@
-// lobbyManager.js
-
-// ----------------------------
-
-// Tracks everyone in the lobby and their “ready” state.
+/**
+ * lobbyManager.js
+ * Tracks everyone in the lobby, their "ready" state, and assigns unique symbols.
+ */
 
 const { PLAYER_SYMBOLS } = require("./config");
-
-const config = require("./config");
 
 const EVENTS = {
   LOBBY_UPDATE: "lobbyUpdate",
@@ -15,92 +12,69 @@ const EVENTS = {
 class LobbyManager {
   constructor(io) {
     this.io = io;
-
-    this.players = {}; // socketId → { id, name, ready }
+    this.players = {}; // socketId → { id, name, ready, symbol, inGame }
   }
 
   addPlayer(socketId, name) {
     // Prevent joining if a case-insensitive duplicate name exists
-
     const lowerName = name.trim().toLowerCase();
-
-    const duplicate = Object.values(this.players).some(
+    const isDuplicateName = Object.values(this.players).some(
       (p) => p.name.trim().toLowerCase() === lowerName,
     );
 
-    if (duplicate) {
-      return { error: "duplicateName" }; // signal back to caller
+    if (isDuplicateName) {
+      return { error: "duplicateName" };
     }
 
-    // Assign a symbol based on the player's name
-
-    const assignedSymbol = config.getSymbolFromName(name);
-
-    // Filter out symbols that are already in use
-
+    // Assign a unique symbol
     const usedSymbols = new Set(
       Object.values(this.players).map((p) => p.symbol),
     );
-
-    // If the assigned symbol is already in use, find a different one
-
-    let symbol;
-
-    if (usedSymbols.has(assignedSymbol)) {
-      const availableSymbols = PLAYER_SYMBOLS.filter(
-        (s) => !usedSymbols.has(s),
-      );
-
-      // If there are other symbols available, pick a random one
-
-      if (availableSymbols.length > 0) {
-        symbol =
-          availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
-      } else {
-        // If all symbols are used, just pick a random one from the whole list,
-
-        // which might result in a duplicate.
-
-        symbol =
-          PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)];
-      }
-    } else {
-      symbol = assignedSymbol;
-    }
+    const availableSymbols = PLAYER_SYMBOLS.filter((s) => !usedSymbols.has(s));
+    const symbol =
+      availableSymbols.length > 0
+        ? availableSymbols[0] // Predictably take the first available
+        : PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)]; // Fallback for overflow
 
     this.players[socketId] = {
       id: socketId,
-
-      name,
-
+      name: name.trim(),
       ready: false,
-
       symbol,
-
       inGame: false,
     };
 
     this.broadcastLobby();
+    return { success: true };
   }
 
   removePlayer(socketId) {
     delete this.players[socketId];
-
     this.broadcastLobby();
   }
 
   setReady(socketId, ready) {
-    const p = this.players[socketId];
-
-    if (!p) return;
-
-    p.ready = ready;
-
-    this.broadcastLobby();
+    const player = this.players[socketId];
+    if (player) {
+      player.ready = !!ready;
+      this.broadcastLobby();
+    }
   }
 
   readyCount() {
     return Object.values(this.players).filter((p) => p.ready).length;
+  }
+
+  /**
+   * Checks if the conditions are met to start a game.
+   * Requires at least two players, and all of them must be ready.
+   */
+  areAllPlayersReady() {
+    const playerCount = Object.keys(this.players).length;
+    if (playerCount < 2) {
+      return false;
+    }
+    return Object.values(this.players).every((p) => p.ready);
   }
 
   resetReady() {
@@ -113,13 +87,9 @@ class LobbyManager {
     return {
       players: Object.values(this.players).map((p) => ({
         id: p.id,
-
         name: p.name,
-
         ready: p.ready,
-
         symbol: p.symbol,
-
         inGame: !!p.inGame,
       })),
     };

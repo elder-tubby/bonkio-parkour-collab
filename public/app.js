@@ -1,352 +1,199 @@
-// app.js
-// Orchestrator tying everything together
+/**
+ * app.js - Client-Side Orchestrator
+ *
+ * This file ties all client-side modules together. It is responsible for:
+ * 1. Initializing the application state and UI.
+ * 2. Setting up listeners for authoritative events from the server via the Network module.
+ * 3. Updating the central `State` based on server events, which in turn drives UI changes.
+ * 4. Binding user input handlers.
+ */
+
+
 import UI from "./ui.js";
 import State from "./state.js";
 import Canvas from "./canvas.js";
 import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
-import { updateLineTypeUI } from "./utils-client.js";
-import { showToast } from "./utils-client.js";
-import { getSpawnDiameter } from "./utils-client.js";
-import { distance, computeAngleDeg } from "./utils-client.js";
 
-function init() {
+function main() {
+  console.log("Initializing application...");
+
+  // Initialize UI element cache and bind user event handlers
   UI.init();
   bindUIEvents();
 
-  Network.onLobbyFull(({ max }) => {
-    alert(`Sorry, the lobby is full (max ${max} players).`);
-  });
+  // Set up all network event listeners and state change watchers
+  bindNetworkEvents();
+  watchStateChanges();
 
-  Network.onLobbyNameTaken(({ reason }) => {
-    alert(reason); // or show in UI
-  });
+  // Initial draw
+  Canvas.draw();
+  console.log("Application initialized.");
+}
 
-  Network.onConnect((id) => State.set("playerId", id));
-  Network.onGameInProgress(
-    () =>
-      UI.show("home") ||
-      UI.showLobbyMessage(
-        "Game in progress. Choose a name and set 'Ready' to join.",
-      ),
+/**
+ * Binds handlers to all incoming network events from the server.
+ * This is the primary mechanism for receiving authoritative state.
+ */
+function bindNetworkEvents() {
+  // Connection & Lobby
+  Network.onConnect((id) => State.set("socketId", id));
+  Network.onLobbyFull(() => alert("Sorry, the lobby is full."));
+  Network.onLobbyNameTaken(() =>
+    alert("That username is taken. Please choose another."),
   );
+  Network.onGameInProgress(() =>
+    UI.showLobbyMessage("Game in progress. Set 'Ready' to join."),
+  );
+
+  // Game Flow
   Network.onLobbyUpdate(({ players }) => {
-    State.set("lobbyPlayers", players || []);
-    if (!State.get("gameActive")) UI.show("home");
-    UI.updateLobby(players);
+    // Correctly destructure the payload
+    State.set("players", players || []);
+    UI.updateLobby(players || []);
   });
-
-  Network.onGameUpdate(({ players, votes }) => {
-    UI.updatePlayers(players);
-    UI.setVote(votes, players.length);
-  });
-
-  // Player line: server now sends width, height, angle (and type)
-  Network.onPlayerLine(
-    ({ id, playerId, line, username, symbol, width, height, angle, type }) => {
-      const lines = State.get("lines");
-
-      // Ensure we normalize to new schema
-      const stored = {
-        id,
-        playerId,
-        start: line.start,
-        end: line.end,
-        symbol, // store symbol here
-        username: username || "",
-        type: type || "none",
-        width:
-          typeof width === "number" ? width : distance(line.start, line.end),
-        height: typeof height === "number" ? height : 4,
-        angle:
-          typeof angle === "number"
-            ? angle
-            : computeAngleDeg(line.start, line.end),
-      };
-
-      State.set("lines", [...lines, stored]);
-
-      if (playerId === State.get("playerId")) {
-        State.set("selectedLineId", id);
-      }
-
-      Canvas.draw();
-    },
-  );
-
-  Network.onLineDeleted(({ id }) => {
-    const lines = State.get("lines").filter((l) => l.id !== id);
-    State.set("lines", lines);
-    // if we deleted our selected line, clear selection
-    if (State.get("selectedLineId") === id) {
-      State.set("selectedLineId", null);
-    }
-    // Hide editor if open
-    UI.hideLineEditor();
-    Canvas.draw();
-  });
-
-  // lineMoved now can carry width & angle
-  Network.onLineMoved(({ id, start, end, width, angle }) => {
-    const updated = State.get("lines").map((l) =>
-      l.id === id
-        ? {
-            ...l,
-            start,
-            end,
-            width: typeof width === "number" ? width : distance(start, end),
-            angle:
-              typeof angle === "number" ? angle : computeAngleDeg(start, end),
-          }
-        : l,
-    );
-    State.set("lines", updated);
-    Canvas.draw();
-  });
-
-  // also listen for server broadcasts of type‐changes:
-  Network.onLineTypeChanged(({ id, type }) => {
-    const updated = State.get("lines").map((l) =>
-      l.id === id ? { ...l, type } : l,
-    );
-    State.set("lines", updated);
-    Canvas.draw();
-  });
-
-  // Listen to property change events (width/height/angle)
-  Network.onLinePropsChanged(({ id, width, height, angle, start, end }) => {
-    const updated = State.get("lines").map((l) =>
-      l.id === id
-        ? {
-            ...l,
-            width: typeof width === "number" ? width : l.width,
-            height: typeof height === "number" ? height : l.height,
-            angle: typeof angle === "number" ? angle : l.angle,
-            // If server sent explicit start/end, use them; otherwise keep existing
-            start: start ? start : l.start,
-            end: end ? end : l.end,
-          }
-        : l,
-    );
-    State.set("lines", updated);
-    // If this line is selected, update sliders
-    if (State.get("selectedLineId") === id) {
-      const line = updated.find((x) => x.id === id);
-      UI.updateLineEditorValues(line);
-    }
-    Canvas.draw();
-  });
-
-  Network.onChatMessage((msg) => UI.appendChat(msg));
-
-  Network.onClearChat(() => {
-    UI.clearChat(); // You'd implement this in UI to remove all chat messages from DOM
-  });
-
-  Network.onChatError(({ reason }) => {
-    showToast(reason); // or better: UI.showLobbyMessage(reason) for a few seconds
-  });
+  Network.onStartGame(initializeGameView);
+  Network.onGameSnapshot(initializeGameView); // Snapshots use the same init logic
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
 
+    const reasonText =
+      reason === "voted"
+        ? "All players voted to end the game."
+        : reason === "player_left"
+          ? "The game ended because only one player was left."
+          : "The game has ended.";
+
+    UI.setEndReason(reasonText);
+    UI.show("gameEndPopup");
     UI.hide("canvasWrap");
     UI.show("home");
-    UI.showLobbyMessage("Drawing will start when 2 players are ready."),
-      UI.resetControls();
-    UI.setEndReason(
-      reason === "voted"
-        ? "All players voted to end."
-        : reason === "player_left"
-          ? "Only one player left - game ended."
-          : "Game ended.",
-    );
-    UI.show("gameEndPopup");
   });
+  // Network.onGameUpdate(({ players, votes, totalParticipants }) => {
+  //     UI.updatePlayers(players || []);
+  //     UI.setVote(votes ?? 0, totalParticipants ?? 0);
+  // });
 
-  Network.onSpawnCircleMove(({ x, y }) => {
-    const spawn = State.get("spawnCircle");
-    State.set("spawnCircle", { ...spawn, x, y });
-    Canvas.draw();
-  });
-
-  Network.onLinesUpdated((lines) => {
-    State.set("lines", lines);
-    Canvas.draw();
-  });
-
-  Network.onSpawnSizeChange(({ size }) => {
-    State.set("mapSize", size);
-    const spawn = State.get("spawnCircle");
-    State.set("spawnCircle", {
-      ...spawn,
-      diameter: getSpawnDiameter(),
-    });
-
-    // Update the UI controls so the slider and label reflect the authoritative value
-    if (UI.elems.spawnSizeSlider) UI.elems.spawnSizeSlider.value = String(size);
-    if (UI.elems.spawnSizeValue)
-      UI.elems.spawnSizeValue.innerText = String(size);
-
-    Canvas.draw();
-  });
-
-  Network.onCapZoneMove(({ x, y }) => {
-    const capZone = State.get("capZone");
-    State.set("capZone", { ...capZone, x, y });
-    Canvas.draw();
-  });
-
-  State.onChange((key, val) => {
-    if (key === "selectedLineId") {
-      UI.elems.deleteLineBtn.disabled = !val;
-      // type selector
-      UI.elems.lineTypeSelect.disabled = !val;
-
-      // if a line is selected, set the selector to its current type
-      if (val) {
-        const line = State.get("lines").find((l) => l.id === val);
-        updateLineTypeUI(line?.type || "none");
-        UI.elems.lineTypeSelect.value = line?.type || "none";
-
-        // Show editor and set values
-        UI.showLineEditor(line);
-      } else {
-        UI.hideLineEditor();
-      }
-      Canvas.draw();
+  // Authoritative State Changes
+  Network.onLineCreated((newLine) => {
+    const lines = State.get("lines") || [];
+    if (!lines.find((l) => l.id === newLine.id)) {
+      State.set("lines", [...lines, newLine]);
     }
   });
 
-  function initializeGameView({
-    capZone,
-    players,
-    spawnCircle,
-    mapSize,
-    lines,
-    votesCount = 0,
-    totalParticipants = 0,
-  }) {
-    State.set("gameActive", true);
-
-    State.set(
-      "lines",
-      (lines || []).map((l) => ({
-        id: l.id,
-        playerId: l.playerId,
-        start: l.start,
-        end: l.end,
-        symbol: l.symbol || l.username || "",
-        username: l.username || "",
-        type: l.type || "none",
-        width: typeof l.width === "number" ? l.width : distance(l.start, l.end),
-        height: typeof l.height === "number" ? l.height : 4,
-        angle:
-          typeof l.angle === "number"
-            ? l.angle
-            : computeAngleDeg(l.start, l.end),
-      })),
+  Network.onLineUpdated((updatedLine) => {
+    const lines = (State.get("lines") || []).map((l) =>
+      l.id === updatedLine.id ? updatedLine : l,
     );
-
-    UI.hide("lobbyMessage");
-    UI.hide("home");
-    UI.show("canvasWrap");
-    UI.updatePlayers(players);
-
-    // show vote counts properly; fallback to players.length if totalParticipants missing
-    const yes = typeof votesCount === "number" ? votesCount : 0;
-    const total =
-      typeof totalParticipants === "number" && totalParticipants > 0
-        ? totalParticipants
-        : players.length;
-    UI.setVote(yes, total);
-
-    UI.setStatus("Draw by dragging on canvas");
-
-    State.set("mapSize", mapSize ?? State.get("mapSize"));
-
-    // after setting State.set("mapSize", mapSize ?? State.get("mapSize"));
-    const authoritativeMapSize = State.get("mapSize");
-    if (UI.elems.spawnSizeSlider)
-      UI.elems.spawnSizeSlider.value = String(authoritativeMapSize);
-    if (UI.elems.spawnSizeValue)
-      UI.elems.spawnSizeValue.innerText = String(authoritativeMapSize);
-
-    const canvas = UI.elems.canvas;
-    const { width, height } = canvas;
-    const spawnDiameter =
-      (spawnCircle && spawnCircle.diameter) || getSpawnDiameter();
-
-    State.set("spawnCircle", {
-      x: (spawnCircle && spawnCircle.x) ?? width / 2,
-      y: (spawnCircle && spawnCircle.y) ?? height / 2,
-      diameter: spawnDiameter,
-      dragging: false,
-    });
-
-    const capWidth = (capZone && capZone.width) || 30;
-    const capHeight = (capZone && capZone.height) || 18.5;
-
-    State.set("capZone", {
-      x:
-        (capZone && capZone.x) ??
-        width / 2 - ((capZone && capZone.width) || 30) / 2,
-      y:
-        (capZone && capZone.y) ??
-        height / 2 -
-          ((capZone && capZone.height) || 18.5) / 2 -
-          spawnDiameter -
-          5,
-      width: (capZone && capZone.width) || 30,
-      height: (capZone && capZone.height) || 18.5,
-      dragging: false,
-    });
-
-    Canvas.draw();
-  }
-
-  // Use the dedicated func for both handlers
-
-  Network.onStartGame(({ capZone, players }) => {
-    // Votes data missing, so pass zero / players.length
-    initializeGameView({
-      capZone,
-      players,
-      spawnCircle: null,
-      mapSize: null,
-      lines: [],
-      votesCount: 0,
-      totalParticipants: players.length,
-    });
+    State.set("lines", lines);
   });
 
-  Network.onGameSnapshot(
-    ({
-      capZone,
-      players,
-      spawnCircle,
-      mapSize,
-      lines,
-      votesCount,
-      totalParticipants,
-      lobbyPayload,
-    }) => {
-      if (lobbyPayload && Array.isArray(lobbyPayload.players)) {
-        UI.updateLobby(lobbyPayload.players);
-        State.set("lobbyPlayers", lobbyPayload.players);
-      }
+  Network.onLineDeleted(({ id }) => {
+    const lines = (State.get("lines") || []).filter((l) => l.id !== id);
+    State.set("lines", lines);
+    if (State.get("selectedLineId") === id) {
+      State.set("selectedLineId", null);
+    }
+  });
 
-      initializeGameView({
-        capZone,
-        players,
-        spawnCircle,
-        mapSize,
-        lines,
-        votesCount,
-        totalParticipants,
-      });
-    },
+  Network.onLinesReordered((reorderedLines) => {
+    State.set("lines", reorderedLines || []);
+  });
+
+  Network.onSpawnCircleUpdate((spawnCircle) =>
+    State.set("spawnCircle", spawnCircle),
   );
-}
-document.addEventListener("DOMContentLoaded", init);
+  Network.onCapZoneUpdate((capZone) => State.set("capZone", capZone));
+  Network.onMapSizeUpdate((mapSize) => State.set("mapSize", mapSize));
 
-// helpers used locally in this file (kept here to avoid adding more shared utilities)
+  // Chat
+  Network.onChatMessage((msg) => UI.appendChat(msg));
+  Network.onChatError((err) =>
+    UI.appendChat({ name: "System", message: err.reason, isError: true }),
+  );
+  Network.onClearChat(() => UI.clearChat());
+}
+
+/**
+ * Sets up listeners for changes to the global `State` object.
+ * This allows the UI to react to any state change, regardless of its origin.
+ */
+function watchStateChanges() {
+  let drawPending = false;
+  const scheduleDraw = () => {
+    if (drawPending) return;
+    drawPending = true;
+    requestAnimationFrame(() => {
+      Canvas.draw();
+      drawPending = false;
+    });
+  };
+
+  State.onChange((key, value) => {
+    // Schedule a redraw for any visual state change
+    const visualKeys = [
+      "lines",
+      "currentLine",
+      "draggingPreview",
+      "capZone",
+      "spawnCircle",
+      "selectedLineId",
+      "hideUsernames",
+    ];
+    if (visualKeys.includes(key)) {
+      scheduleDraw();
+    }
+
+    // Handle specific UI updates based on state changes
+    switch (key) {
+      case "selectedLineId":
+        if (value) {
+          const line = (State.get("lines") || []).find((l) => l.id === value);
+          UI.showLineEditor(line); // Use the comprehensive UI method
+        } else {
+          UI.hideLineEditor();
+        }
+        break;
+
+      case "mapSize":
+        if (UI.elems.spawnSizeSlider)
+          UI.elems.spawnSizeSlider.value = String(value);
+        if (UI.elems.spawnSizeValue)
+          UI.elems.spawnSizeValue.innerText = String(value);
+        break;
+    }
+  });
+}
+
+/**
+ * Initializes the game view with data from the server.
+ * Used for both starting a new game and for late-joiners receiving a snapshot.
+ */
+function initializeGameView(payload = {}) {
+  State.set("gameActive", true);
+  State.set("lines", payload.lines || []);
+  State.set("players", payload.players || []);
+  State.set("capZone", payload.capZone);
+  State.set("spawnCircle", payload.spawnCircle);
+  State.set("mapSize", payload.mapSize ?? 9);
+
+  // If this is a snapshot for a late-joiner, it may contain extra info
+  if (payload.lobbyPayload) {
+    UI.updateLobby(payload.lobbyPayload.players || []);
+  }
+  if (
+    payload.votesCount !== undefined &&
+    payload.totalParticipants !== undefined
+  ) {
+    UI.setVote(payload.votesCount, payload.totalParticipants);
+  }
+
+  // Manually transition the UI from lobby to game view
+  UI.hide("home");
+  UI.show("canvasWrap");
+  UI.updatePlayers(payload.players || []);
+}
+
+// Run the application once the DOM is fully loaded
+document.addEventListener("DOMContentLoaded", main);

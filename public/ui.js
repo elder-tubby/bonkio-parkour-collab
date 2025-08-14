@@ -1,8 +1,7 @@
-// ui.js (refactored)
 import { normalizeAngle } from "./utils-client.js";
 
 /*
-  Centralized selectors. Keep this complete and authoritative.
+Centralized selectors. Keep this complete and authoritative.
 */
 const SELECTORS = {
   home: "#homeScreen",
@@ -20,8 +19,10 @@ const SELECTORS = {
   chatSendBtn: "#chatSendBtn",
   chatMessages: "#chatMessages",
   gameEndPopup: "#gameEndPopup",
+  lineEditor: "#lineEditor", // Added for clarity
 
   // line controls
+  copyMapBtn: "#copyMapBtn",
   copyLineInfoBtn: "#copyLineInfoBtn",
   popupCloseBtn: "#popup-close",
   lobbyMessage: "#lobbyMessage",
@@ -78,21 +79,11 @@ class UI {
     };
   }
 
-  // safe querySelector wrapper
-  _qs(sel) {
-    if (!sel) return null;
-    try {
-      return document.querySelector(sel);
-    } catch (e) {
-      return null;
-    }
-  }
-
   init() {
     // single place to query DOM
-    Object.entries(SELECTORS).forEach(([key, sel]) => {
-      this.elems[key] = this._qs(sel) || null;
-    });
+    for (const key in SELECTORS) {
+        this.elems[key] = document.querySelector(SELECTORS[key]);
+    }
 
     if (this.elems.canvas) {
       this.elems.ctx = this.elems.canvas.getContext("2d");
@@ -112,14 +103,14 @@ class UI {
   }
 
   _createLineEditor() {
-    const controlBox = this._qs(".control-box");
+    const controlBox = document.querySelector(".control-box");
     if (!controlBox) return;
 
     // clear and re-create deterministically
     controlBox.innerHTML = "";
 
     // STATUS (placed above the editor and centered)
-    let status = this._qs("#status");
+    let status = document.querySelector("#status");
     if (!status) {
       status = document.createElement("div");
       status.id = "status";
@@ -162,7 +153,7 @@ class UI {
     spawnLabel.style.fontSize = "12px";
     spawnLabel.innerText = "Map Size:";
 
-    let spawnSlider = this._qs("#spawnSizeSlider");
+    let spawnSlider = document.querySelector("#spawnSizeSlider");
     if (!spawnSlider) {
       spawnSlider = document.createElement("input");
       spawnSlider.type = "range";
@@ -177,7 +168,7 @@ class UI {
     spawnSlider.style.minWidth = "150px";
     spawnSlider.style.maxWidth = "360px";
 
-    let spawnVal = this._qs("#spawnSizeValue");
+    let spawnVal = document.querySelector("#spawnSizeValue");
     if (!spawnVal) {
       spawnVal = document.createElement("span");
       spawnVal.id = "spawnSizeValue";
@@ -204,7 +195,7 @@ class UI {
     rowDelete.style.justifyContent = "space-between";
 
     // Paste button
-    let pasteBtn = this._qs("#pasteMapBtn");
+    let pasteBtn = document.querySelector("#pasteMapBtn");
     if (!pasteBtn) {
       pasteBtn = document.createElement("button");
       pasteBtn.id = "pasteMapBtn";
@@ -220,7 +211,7 @@ class UI {
     pasteBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
 
     // Delete button
-    let deleteBtn = this._qs("#deleteLineBtn");
+    let deleteBtn = document.querySelector("#deleteLineBtn");
     if (!deleteBtn) {
       deleteBtn = document.createElement("button");
       deleteBtn.id = "deleteLineBtn";
@@ -234,7 +225,7 @@ class UI {
     deleteBtn.title = "Delete selected line";
 
     // Type select
-    let typeSelect = this._qs("#lineTypeSelect");
+    let typeSelect = document.querySelector("#lineTypeSelect");
     if (!typeSelect) {
       typeSelect = document.createElement("select");
       typeSelect.id = "lineTypeSelect";
@@ -377,7 +368,7 @@ class UI {
         label.textContent = labelText;
       }
 
-      let input = this._qs("#" + id);
+      let input = document.querySelector("#" + id);
       if (!input) {
         input = document.createElement("input");
         input.type = "range";
@@ -404,9 +395,27 @@ class UI {
       return { row, input, value };
     };
 
-    const w = makeSliderRow("lineWidthSlider", "Width (ALT + L/R)", 1, 1000, 100);
-    const h = makeSliderRow("lineHeightSlider", "Height (ALT + U/D)", 1, 1000, 4);
-    const a = makeSliderRow("lineAngleSlider", "Angle (SHIFT + L/R)", 0, 180, 0);
+    const w = makeSliderRow(
+      "lineWidthSlider",
+      "Width (ALT + L/R)",
+      1,
+      1000,
+      100,
+    );
+    const h = makeSliderRow(
+      "lineHeightSlider",
+      "Height (ALT + U/D)",
+      1,
+      1000,
+      4,
+    );
+    const a = makeSliderRow(
+      "lineAngleSlider",
+      "Angle (SHIFT + L/R)",
+      0,
+      180,
+      0,
+    );
 
     rightCol.appendChild(w.row);
     rightCol.appendChild(h.row);
@@ -447,13 +456,15 @@ class UI {
 
   // generic helpers
   _setDisplay(elemOrKey, display) {
-    const el = typeof elemOrKey === "string" ? this.elems[elemOrKey] : elemOrKey;
+    const el =
+      typeof elemOrKey === "string" ? this.elems[elemOrKey] : elemOrKey;
     if (!el) return;
     el.style.display = display;
   }
 
   _setDisabled(elemOrKey, disabled) {
-    const el = typeof elemOrKey === "string" ? this.elems[elemOrKey] : elemOrKey;
+    const el =
+      typeof elemOrKey === "string" ? this.elems[elemOrKey] : elemOrKey;
     if (!el) return;
     if ("disabled" in el) el.disabled = Boolean(disabled);
   }
@@ -467,32 +478,28 @@ class UI {
   }
 
   /*
-    Centralized: set visibility & enabled/disabled state for all line-related UI.
-    * selected: boolean - whether a line is selected
-    * isNew: boolean - whether the selected line is "new" (some controls remain disabled)
-    Behavior:
-      - When selected === false: all line-specific UI (including sliders & values) are hidden
-      - When selected === true: those controls are shown. If isNew === true, they will be shown
-        but disabled where applicable.
-  */
+Centralized: set visibility & enabled/disabled state for all line-related UI.
+*/
   setLineSelectionVisible(selected, isNew = false) {
     const show = Boolean(selected);
     const controlDisplay = show ? this.DISPLAY.CONTROL : this.DISPLAY.HIDDEN;
     const panelDisplay = show ? this.DISPLAY.PANEL : this.DISPLAY.HIDDEN;
 
     // show/hide whole editor panel (right column with sliders)
-    if (this.elems.lineEditor) this.elems.lineEditor.style.display = panelDisplay;
+    if (this.elems.lineEditor)
+      this.elems.lineEditor.style.display = panelDisplay;
 
     // status text visibility: hide when a line is selected
-    if (this.elems.statusText) this.elems.statusText.style.display = show ? this.DISPLAY.HIDDEN : "block";
+    if (this.elems.statusText)
+      this.elems.statusText.style.display = show
+        ? this.DISPLAY.HIDDEN
+        : "block";
 
     // line controls (paste, delete, type, order, front/back)
     this.LINE_CONTROLS.forEach((k) => {
       const el = this.elems[k];
       if (!el) return;
       el.style.display = controlDisplay;
-
-      // for interactive controls, disabled when not visible OR when line is new
       const shouldDisable = !show || Boolean(isNew);
       if ("disabled" in el) el.disabled = shouldDisable;
     });
@@ -501,7 +508,6 @@ class UI {
     this.SLIDER_KEYS.forEach((k) => {
       const el = this.elems[k];
       if (!el) return;
-      // sliders are input elements and value boxes. keep them flexible inline-block
       el.style.display = show ? "flex" : this.DISPLAY.HIDDEN;
       if (el.tagName === "INPUT" && el.type === "range") {
         el.disabled = !show || Boolean(isNew);
@@ -526,18 +532,25 @@ class UI {
     if (!line) return this.hideLineEditor();
 
     const w = Math.round(
-      line.width ?? Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y),
+      line.width ??
+        Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y),
     );
     const h = Math.round(line.height ?? 4);
     const a = Math.round(line.angle ?? 0);
 
-    if (this.elems.lineWidthSlider) this.elems.lineWidthSlider.value = String(w);
-    if (this.elems.lineHeightSlider) this.elems.lineHeightSlider.value = String(h);
-    if (this.elems.lineAngleSlider) this.elems.lineAngleSlider.value = String(normalizeAngle(a));
+    if (this.elems.lineWidthSlider)
+      this.elems.lineWidthSlider.value = String(w);
+    if (this.elems.lineHeightSlider)
+      this.elems.lineHeightSlider.value = String(h);
+    if (this.elems.lineAngleSlider)
+      this.elems.lineAngleSlider.value = String(normalizeAngle(a));
 
-    if (this.elems.lineWidthValue) this.elems.lineWidthValue.innerText = String(w);
-    if (this.elems.lineHeightValue) this.elems.lineHeightValue.innerText = String(h);
-    if (this.elems.lineAngleValue) this.elems.lineAngleValue.innerText = String(normalizeAngle(a));
+    if (this.elems.lineWidthValue)
+      this.elems.lineWidthValue.innerText = String(w);
+    if (this.elems.lineHeightValue)
+      this.elems.lineHeightValue.innerText = String(h);
+    if (this.elems.lineAngleValue)
+      this.elems.lineAngleValue.innerText = String(normalizeAngle(a));
   }
 
   // small utilities for lobby / chat / players (kept intact but simplified checks)
@@ -592,10 +605,14 @@ class UI {
     this.elems.chatMessages.innerHTML = "";
   }
 
-  appendChat({ name, message }) {
+  appendChat({ name, message, isError = false }) {
     if (!this.elems.chatMessages) return;
     const p = document.createElement("p");
-    p.innerHTML = `<span class=\"chat-sender\">${name}:</span> ${message}`;
+    if (isError) {
+      p.style.color = "#dc3545"; // Use a distinct error color
+      p.style.fontStyle = "italic";
+    }
+    p.innerHTML = `<span class="chat-sender">${name}:</span> ${message}`;
     this.elems.chatMessages.appendChild(p);
     this.elems.chatMessages.scrollTop = this.elems.chatMessages.scrollHeight;
   }

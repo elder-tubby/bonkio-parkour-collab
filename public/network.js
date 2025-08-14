@@ -1,8 +1,16 @@
-// network.js
-// Encapsulates all Socket.io interactions
+/**
+ * network.js - Client-Side Network Interface
+ *
+ * This file abstracts all communication with the server's Socket.IO endpoint.
+ * It provides a clean, consistent API for both emitting events to the server
+ * and subscribing to events received from the server.
+ */
+
+// Assuming socket.io client is loaded globally, e.g., via a <script> tag.
 const socket = window.io();
 
-// Emitters
+// ---- EMITTERS (Client -> Server) ----
+
 export function joinLobby(name) {
   socket.emit("joinLobby", name);
 }
@@ -15,132 +23,112 @@ export function voteFinish(vote) {
   socket.emit("voteFinish", vote);
 }
 
-export function drawLine(line) {
-  socket.emit("drawLine", line);
-}
-
 export function sendChat(message) {
   socket.emit("chatMessage", message);
+}
+
+// Line and Map Object Manipulation
+export function drawLine(lineData) {
+  socket.emit("drawLine", lineData);
 }
 
 export function deleteLine(lineId) {
   socket.emit("deleteLine", lineId);
 }
 
-export function changeLineType(payload) {
-  socket.emit("changeLineType", payload);
+export function reorderLine(payload) {
+  socket.emit("reorderLine", payload);
 }
 
-// New: change line properties (width, height, angle)
-export function changeLineProps(payload) {
-  // payload: { id, width?, height?, angle? }
-  socket.emit("changeLineProps", payload);
+/**
+ * Unified emitter for all types of line updates.
+ * @param {object} payload - Must include `id` and any of:
+ * start, end, width, height, angle, type,
+ * widthDelta, heightDelta, angleDelta, nudge {x, y}
+ */
+export function emitLineUpdate(payload) {
+  socket.emit("updateLine", payload);
 }
 
-export function moveLine(payload) {
-  socket.emit("moveLine", payload);
+export function emitSpawnCircleUpdate(data) {
+  socket.emit("updateSpawnCircle", data);
 }
 
-// Handlers
-export function onLobbyUpdate(cb) {
-  socket.on("lobbyUpdate", cb);
+export function emitCapZoneUpdate(data) {
+  socket.emit("updateCapZone", data);
 }
 
+export function emitSpawnSizeChange(size) {
+  socket.emit("updateMapSize", size);
+}
+
+// ---- LISTENERS (Server -> Client) ----
+
+// Connection
+export function onConnect(cb) {
+  socket.on("connect", () => cb(socket.id));
+}
+export function onLobbyFull(cb) {
+  socket.on("lobbyFull", cb);
+}
+export function onLobbyNameTaken(cb) {
+  socket.on("lobbyNameTaken", cb);
+}
 export function onGameInProgress(cb) {
   socket.on("gameInProgress", cb);
 }
 
+// Lobby and Game Flow
+export function onLobbyUpdate(cb) {
+  socket.on("lobbyUpdate", cb);
+}
 export function onStartGame(cb) {
   socket.on("startGame", cb);
 }
-
+export function onGameSnapshot(cb) {
+  socket.on("gameSnapshot", cb);
+}
+export function onEndGame(cb) {
+  socket.on("endGame", cb);
+}
 export function onGameUpdate(cb) {
   socket.on("gameUpdate", cb);
+} // Added to handle vote/player list updates
+
+// Authoritative State Updates
+export function onLineCreated(cb) {
+  socket.on("lineCreated", cb);
+}
+export function onLineUpdated(cb) {
+  socket.on("lineUpdated", cb);
+}
+export function onLineDeleted(cb) {
+  socket.on("lineDeleted", cb);
+}
+export function onLinesReordered(cb) {
+  socket.on("linesReordered", cb);
 }
 
-export function onPlayerLine(cb) {
-  socket.on("playerLine", cb);
+export function onSpawnCircleUpdate(cb) {
+  socket.on("spawnCircleUpdated", cb);
+}
+export function onCapZoneUpdate(cb) {
+  socket.on("capZoneUpdated", cb);
+}
+export function onMapSizeUpdate(cb) {
+  socket.on("mapSizeUpdated", cb);
 }
 
+// Chat
 export function onChatMessage(cb) {
   socket.on("chatMessage", cb);
 }
-
+export function onChatError(cb) {
+  socket.on("chatError", cb);
+}
 export function onClearChat(cb) {
   socket.on("clearChat", cb);
 }
 
-export function onEndGame(cb) {
-  socket.on("endGame", cb);
-}
-
-export function onLobbyFull(cb) {
-  socket.on("lobbyFull", cb);
-}
-
-export function onConnect(cb) {
-  socket.on("connect", () => cb(socket.id));
-}
-
-export function onLineDeleted(cb) {
-  socket.on("lineDeleted", cb);
-}
-
-export function onLineTypeChanged(handler) {
-  socket.on("lineTypeChanged", handler);
-}
-
-export function reorderLine(payload) {
-  // payload: { id, toBack: boolean }
-  socket.emit("reorderLine", payload);
-}
-
-export function onLinesUpdated(handler) {
-  socket.on("linesUpdated", handler); // handler receives new lines array
-}
-
-// New: clients can listen to property updates
-export function onLinePropsChanged(handler) {
-  socket.on("linePropsChanged", handler);
-}
-
-// lineMoved event (server now also includes width & angle when applicable)
-export function onLineMoved(cb) {
-  socket.on("lineMoved", cb);
-}
-
-export function onSpawnCircleMove(cb) {
-  socket.on("spawnCircleMove", cb);
-}
-
-export function onCapZoneMove(cb) {
-  socket.on("capZoneMove", cb);
-}
-
-export function onChatError(cb) {
-  socket.on("chatError", cb);
-}
-
-export function emitSpawnCircleMove(x, y) {
-  socket.emit("spawnCircleMove", { x, y });
-}
-
-export function emitCapZoneMove(x, y) {
-  socket.emit("capZoneMove", { x, y });
-}
-
-export function emitSpawnSizeChange(size) {
-  socket.emit("spawnSizeChange", { size });
-}
-
-export function onSpawnSizeChange(cb) {
-  socket.on("spawnSizeChange", cb);
-}
-
-export function onGameSnapshot(cb) {
-  socket.on("gameSnapshot", cb);
-}
-
-export function onLobbyNameTaken(cb) {
-  socket.on("lobbyNameTaken", cb);
-}
+// Utility: expose raw socket if needed for debugging or special cases
+export { socket };
