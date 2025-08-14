@@ -1,24 +1,23 @@
+
 // index.js
 // ----------------------------
 // Wire up Express, HTTP server, Socket.io, and your managers.\
 import { reorderLines } from "./shared/lines.js";
-
-const path = require("path");
-const express = require("express");
-const http = require("http");
-const socketio = require("socket.io");
-
-const config = require("./config");
-const LobbyManager = require("./lobbyManager");
-const GameManager = require("./gameManager");
+import path from "path";
+import express from "express";
+import http from "http";
+import { Server as socketio } from "socket.io";
+import config from "./config.js";
+import LobbyManager from "./lobbyManager.js";
+import GameManager from "./gameManager.js";
 
 const app = express();
 const server = http.createServer(app);
-const io = socketio(server);
-const { MAX_PLAYERS } = require("./config");
+const io = new socketio(server);
+const { MAX_PLAYERS } = config;
 
 // Serve your client-side bundle
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(process.cwd(), "public")));
 
 // Create singletons
 const lobby = new LobbyManager(io);

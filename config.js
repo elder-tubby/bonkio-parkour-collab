@@ -1,5 +1,6 @@
+
 // config.js
-module.exports = {
+export default {
   PORT: 3000,
   CAP_ZONE_OPTIONS: [
     { x: 10, y: 10 },
