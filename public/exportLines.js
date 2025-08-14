@@ -25,7 +25,7 @@ export function copyLineInfo(lines) {
   // Fixed background and cap‑zone entries
   const bgLine = {
     id: 0,
-    color: 196865,
+    color: 1381653,
     x: 935,
     y: 350,
     width: 1000,

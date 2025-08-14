@@ -429,16 +429,22 @@ export function handleKeyCommands(ev) {
   const lineId = State.get("selectedLineId");
   if (!lineId) return;
 
+  const lines = State.get("lines");
+  const line = lines.find((l) => l.id === lineId);
+  if (!line) return;
+  let newType = "none";
   switch (lower) {
     case "b":
-      Network.changeLineType({ id: lineId, type: "bouncy" });
-      updateLineTypeUI("bouncy");
-      UI.elems.lineTypeSelect.value = "bouncy";
+      newType = line.type === "bouncy" ? "none" : "bouncy";
+      Network.changeLineType({ id: lineId, type: newType });
+      updateLineTypeUI(newType);
+      UI.elems.lineTypeSelect.value = newType;
       break;
     case "d":
-      Network.changeLineType({ id: lineId, type: "death" });
-      updateLineTypeUI("death");
-      UI.elems.lineTypeSelect.value = "death";
+      newType = line.type === "death" ? "none" : "death";
+      Network.changeLineType({ id: lineId, type: newType });
+      updateLineTypeUI(newType);
+      UI.elems.lineTypeSelect.value = newType;
       break;
     case "n":
       Network.changeLineType({ id: lineId, type: "none" });
@@ -468,29 +474,30 @@ function scheduleMoveLine(id, start, end, delay = 80) {
 }
 
 // Arrow state & animation loop
+// Arrow state & animation loop
 const _arrowState = {
-  keys: new Set(), // currently pressed arrow keys
-  anim: null, // requestAnimationFrame id
-  last: 0, // last timestamp
-  shift: false, // whether shift is down (fast)
+  keys: new Set(),
+  anim: null,
+  last: 0,
+  shift: false,
+  repeatTimer: null, // New: a timer for the delayed repeat
 };
 
 // base speeds (px/sec)
 const BASE_SPEED = 60; // default hold speed (approx)
 const FAST_MULT = 4; // when Shift held
-
 function _arrowLoop(now) {
   if (!_arrowState.last) _arrowState.last = now;
-  const dt = Math.min(100, now - _arrowState.last) / 1000; // seconds, clamp dt for safety
+  const dt = Math.min(100, now - _arrowState.last) / 1000;
   _arrowState.last = now;
 
   if (_arrowState.keys.size === 0) {
+    cancelAnimationFrame(_arrowState.anim);
     _arrowState.anim = null;
     _arrowState.last = 0;
     return;
   }
 
-  // compute direction from set
   let dx = 0,
     dy = 0;
   if (_arrowState.keys.has("ArrowLeft")) dx -= 1;
@@ -499,13 +506,13 @@ function _arrowLoop(now) {
   if (_arrowState.keys.has("ArrowDown")) dy += 1;
 
   if (dx !== 0 || dy !== 0) {
-    // normalize so diagonal speed = straight-line speed
     const len = Math.hypot(dx, dy);
     if (len !== 0) {
       dx /= len;
       dy /= len;
     }
 
+    // The speed now depends on whether the shift key is down
     const speed = BASE_SPEED * (_arrowState.shift ? FAST_MULT : 1);
     const moveX = dx * speed * dt;
     const moveY = dy * speed * dt;
@@ -531,10 +538,14 @@ function _arrowLoop(now) {
 
   _arrowState.anim = requestAnimationFrame(_arrowLoop);
 }
+// Keydown handler: add arrow to set and start loop if needed
+// New constant for the nudge amount
+const NUDGE_STEP = 1;
+
+// ... (rest of your code)
 
 // Keydown handler: add arrow to set and start loop if needed
 export function handleArrowKeyDown(ev) {
-  // keep chat focus behavior: don't move when chat input focused
   const chatInput = UI && UI.elems ? UI.elems.chatInput : null;
   if (chatInput && document.activeElement === chatInput) return;
 
@@ -542,28 +553,69 @@ export function handleArrowKeyDown(ev) {
   const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
   if (!arrows.includes(key)) return;
 
-  // don't handle combos reserved for other handlers
-  // don't handle combos reserved for other handlers
+  // Don't handle combos with modifier keys
   if (ev.ctrlKey || ev.altKey || ev.shiftKey) return;
 
-  _arrowState.keys.add(key);
-  _arrowState.shift = ev.shiftKey || _arrowState.shift;
+  // Check if the key is already being held down
+  if (_arrowState.keys.has(key)) {
+    return; // This is a key repeat event, ignore it.
+  }
 
+  _arrowState.keys.add(key);
   ev.preventDefault();
 
-  if (!_arrowState.anim) {
-    _arrowState.last = 0;
-    _arrowState.anim = requestAnimationFrame(_arrowLoop);
-  }
+  // Perform a single, immediate step for a tap
+  nudgeSelectedLine(key);
+
+  // Clear any existing repeat timer and set a new one
+  clearTimeout(_arrowState.repeatTimer);
+  _arrowState.repeatTimer = setTimeout(() => {
+    // Only start the continuous loop if the key is still held down
+    if (_arrowState.keys.has(key) && !_arrowState.anim) {
+      _arrowState.last = 0;
+      _arrowState.anim = requestAnimationFrame(_arrowLoop);
+    }
+  }, 200); // 200ms delay before continuous movement starts
 }
 
-// Keyup handler: remove arrow and stop loop if empty; also track Shift release
+function nudgeSelectedLine(key) {
+  let dx = 0,
+    dy = 0;
+  const step = 1; // single-unit movement for a tap
+
+  if (key === "ArrowLeft") dx = -step;
+  if (key === "ArrowRight") dx = step;
+  if (key === "ArrowUp") dy = -step;
+  if (key === "ArrowDown") dy = step;
+
+  if (dx !== 0 || dy !== 0) {
+    const sel = State.get("selectedLineId");
+    if (sel) {
+      const updated = State.get("lines").map((l) => {
+        if (l.id !== sel) return l;
+        return {
+          ...l,
+          start: { x: l.start.x + dx, y: l.start.y + dy },
+          end: { x: l.end.x + dx, y: l.end.y + dy },
+        };
+      });
+      State.set("lines", updated);
+      Canvas.draw();
+      const line = updated.find((l) => l.id === sel);
+      if (line) scheduleMoveLine(sel, line.start, line.end);
+    }
+  }
+}
 export function handleArrowKeyUp(ev) {
   const key = ev.key;
   const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
   if (arrows.includes(key)) {
     _arrowState.keys.delete(key);
     ev.preventDefault();
+
+    // Clear the repeat timer when the key is released
+    clearTimeout(_arrowState.repeatTimer);
+    _arrowState.repeatTimer = null;
   }
 
   // If shift was released, update flag
@@ -571,7 +623,7 @@ export function handleArrowKeyUp(ev) {
     _arrowState.shift = false;
   }
 
-  // If nothing pressed, stop
+  // If nothing pressed, stop animation loop
   if (_arrowState.keys.size === 0 && _arrowState.anim) {
     cancelAnimationFrame(_arrowState.anim);
     _arrowState.anim = null;
@@ -651,6 +703,29 @@ function modifySelectedLineHeight(delta) {
     scheduleSendProps(sel, { height: line.height });
     UI.updateLineEditorValues(line);
   }
+}
+
+function moveSelectedLineToBackOrFront(toBack = true) {
+  const selId = State.get("selectedLineId");
+  if (!selId) return;
+
+  const lines = State.get("lines");
+  const idx = lines.findIndex((l) => l.id === selId);
+  if (idx === -1) return;
+
+  // Remove the selected line from its current position
+  const [selectedLine] = lines.splice(idx, 1);
+
+  if (toBack) {
+    // Put it at the start (back)
+    lines.unshift(selectedLine);
+  } else {
+    // Put it at the end (front)
+    lines.push(selectedLine);
+  }
+
+  State.set("lines", lines);
+  Canvas.draw();
 }
 
 function normalizeAngle180(angle) {

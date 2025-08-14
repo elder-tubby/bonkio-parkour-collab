@@ -10,7 +10,6 @@ import { showToast } from "./utils-client.js";
 import { getSpawnDiameter } from "./utils-client.js";
 import { distance, computeAngleDeg } from "./utils-client.js";
 
-
 function init() {
   UI.init();
   bindUIEvents();
@@ -23,12 +22,13 @@ function init() {
     alert(reason); // or show in UI
   });
 
-  
   Network.onConnect((id) => State.set("playerId", id));
   Network.onGameInProgress(
     () =>
       UI.show("home") ||
-      UI.showLobbyMessage("Game in progress. Choose a name and set 'Ready' to join."),
+      UI.showLobbyMessage(
+        "Game in progress. Choose a name and set 'Ready' to join.",
+      ),
   );
   Network.onLobbyUpdate(({ players }) => {
     State.set("lobbyPlayers", players || []);
@@ -139,6 +139,10 @@ function init() {
 
   Network.onChatMessage((msg) => UI.appendChat(msg));
 
+  Network.onClearChat(() => {
+    UI.clearChat(); // You'd implement this in UI to remove all chat messages from DOM
+  });
+
   Network.onChatError(({ reason }) => {
     showToast(reason); // or better: UI.showLobbyMessage(reason) for a few seconds
   });
@@ -148,7 +152,7 @@ function init() {
     UI.hide("canvasWrap");
     UI.show("home");
     UI.showLobbyMessage("Drawing will start when 2 players are ready."),
-    UI.resetControls();
+      UI.resetControls();
     UI.setEndReason(
       reason === "voted"
         ? "All players voted to end."

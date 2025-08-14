@@ -66,6 +66,10 @@ export function onChatMessage(cb) {
   socket.on("chatMessage", cb);
 }
 
+export function onClearChat(cb) {
+  socket.on("clearChat", cb);
+}
+
 export function onEndGame(cb) {
   socket.on("endGame", cb);
 }

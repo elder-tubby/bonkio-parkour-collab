@@ -54,6 +54,9 @@ class GameManager {
     });
 
     this.lines = [];
+    // Let all clients know to clear chat when a new game starts
+    this.io.emit("clearChat");
+
     // Only notify actual participants
     this.participants.forEach((id) => {
       const sock = this.io.sockets.sockets.get(id);

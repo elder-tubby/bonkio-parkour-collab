@@ -292,12 +292,15 @@
       button {
         font-family: "Lexend", sans-serif;
         font-size: 13px;
-        padding: 0.45rem 0.9rem;
+        padding: 0;
+        justify-content: center;
         background: #333;
         color: #eee;
         border: none;
         border-radius: 5px;
         cursor: pointer;
+        box-sizing: border-box;   /* keep border/padding inside set height */
+
       }
 
       button:hover {
@@ -315,12 +318,14 @@
       }
 
       #lineTypeSelect {
-        padding: 0.45rem;
+        justify-content: center;
         background: #333;
         color: #eee;
         border: none;
         border-radius: 5px;
         font-size: 13px;
+        text-align: center;        /* centers text */
+        text-align-last: center; 
       }
 
       #lineTypeSelect:disabled {

@@ -1,8 +1,11 @@
 // lobbyManager.js
+
 // ----------------------------
+
 // Tracks everyone in the lobby and their “ready” state.
 
 const { PLAYER_SYMBOLS } = require("./config");
+
 const config = require("./config");
 
 const EVENTS = {
@@ -12,40 +15,52 @@ const EVENTS = {
 class LobbyManager {
   constructor(io) {
     this.io = io;
+
     this.players = {}; // socketId → { id, name, ready }
   }
 
   addPlayer(socketId, name) {
     // Prevent joining if a case-insensitive duplicate name exists
+
     const lowerName = name.trim().toLowerCase();
+
     const duplicate = Object.values(this.players).some(
       (p) => p.name.trim().toLowerCase() === lowerName,
     );
+
     if (duplicate) {
       return { error: "duplicateName" }; // signal back to caller
     }
 
     // Assign a symbol based on the player's name
+
     const assignedSymbol = config.getSymbolFromName(name);
 
     // Filter out symbols that are already in use
+
     const usedSymbols = new Set(
       Object.values(this.players).map((p) => p.symbol),
     );
 
     // If the assigned symbol is already in use, find a different one
+
     let symbol;
+
     if (usedSymbols.has(assignedSymbol)) {
       const availableSymbols = PLAYER_SYMBOLS.filter(
         (s) => !usedSymbols.has(s),
       );
+
       // If there are other symbols available, pick a random one
+
       if (availableSymbols.length > 0) {
         symbol =
           availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
       } else {
         // If all symbols are used, just pick a random one from the whole list,
+
         // which might result in a duplicate.
+
         symbol =
           PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)];
       }
@@ -55,9 +70,13 @@ class LobbyManager {
 
     this.players[socketId] = {
       id: socketId,
+
       name,
+
       ready: false,
+
       symbol,
+
       inGame: false,
     };
 
@@ -66,13 +85,17 @@ class LobbyManager {
 
   removePlayer(socketId) {
     delete this.players[socketId];
+
     this.broadcastLobby();
   }
 
   setReady(socketId, ready) {
     const p = this.players[socketId];
+
     if (!p) return;
+
     p.ready = ready;
+
     this.broadcastLobby();
   }
 
@@ -90,9 +113,13 @@ class LobbyManager {
     return {
       players: Object.values(this.players).map((p) => ({
         id: p.id,
+
         name: p.name,
+
         ready: p.ready,
+
         symbol: p.symbol,
+
         inGame: !!p.inGame,
       })),
     };
