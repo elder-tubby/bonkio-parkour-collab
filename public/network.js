@@ -90,6 +90,15 @@ export function onLineTypeChanged(handler) {
   socket.on("lineTypeChanged", handler);
 }
 
+export function reorderLine(payload) {
+  // payload: { id, toBack: boolean }
+  socket.emit("reorderLine", payload);
+}
+
+export function onLinesUpdated(handler) {
+  socket.on("linesUpdated", handler); // handler receives new lines array
+}
+
 // New: clients can listen to property updates
 export function onLinePropsChanged(handler) {
   socket.on("linePropsChanged", handler);

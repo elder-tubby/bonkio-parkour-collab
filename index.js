@@ -1,6 +1,7 @@
 // index.js
 // ----------------------------
-// Wire up Express, HTTP server, Socket.io, and your managers.
+// Wire up Express, HTTP server, Socket.io, and your managers.\
+import { reorderLines } from "./shared/lines.js";
 
 const path = require("path");
 const express = require("express");
@@ -67,8 +68,6 @@ io.on("connection", (socket) => {
     }
 
     lobby.addPlayer(socket.id, name);
-
-
   });
 
   socket.on(EVENTS.SET_READY, (isReady) => {
@@ -164,6 +163,11 @@ io.on("connection", (socket) => {
 
   socket.on(EVENTS.CHANGE_LINE_TYPE, (payload) => {
     game.changeLineType(socket.id, payload.id, payload.type);
+  });
+
+  socket.on("reorderLine", ({ id, toBack }) => {
+    reorderLines(gameState.lines, id, toBack);
+    io.emit("linesUpdated", { id, toBack });
   });
 
   socket.on("spawnCircleMove", ({ x, y, diameter }) => {

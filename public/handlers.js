@@ -726,6 +726,7 @@ function moveSelectedLineToBackOrFront(toBack = true) {
 
   State.set("lines", lines);
   Canvas.draw();
+  Network.reorderLine({ id: selId, toBack });
 }
 
 function normalizeAngle180(angle) {
@@ -787,6 +788,7 @@ export function bindUIEvents() {
   e.voteCheckbox.addEventListener("change", handleVoteToggle);
   e.hideUsernamesCheckbox.addEventListener("change", handleHideUsernamesToggle);
   e.deleteLineBtn.addEventListener("click", handleDeleteLine);
+  
   e.lineTypeSelect.addEventListener("change", handleLineTypeChange);
   e.chatSendBtn.addEventListener("click", handleSendChat);
   e.chatInput.addEventListener("keydown", handleEnterKey(handleSendChat));
@@ -936,5 +938,16 @@ export function bindUIEvents() {
 
     // also treat arrow nudges separately (so they don't get swallowed by other handlers)
     handleArrowNudge(ev);
+  });
+
+  e.toBackBtn.addEventListener("click", () => {
+    const selId = State.get("selectedLineId");
+    if (!selId) return;
+    Network.reorderLine({ id: selId, toBack: true });
+  });
+  e.toFrontBtn.addEventListener("click", () => {
+    const selId = State.get("selectedLineId");
+    if (!selId) return;
+    Network.reorderLine({ id: selId, toBack: false });
   });
 }

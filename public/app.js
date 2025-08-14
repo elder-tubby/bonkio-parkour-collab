@@ -169,6 +169,11 @@ function init() {
     Canvas.draw();
   });
 
+  Network.onLinesUpdated((lines) => {
+    State.set("lines", lines);
+    Canvas.draw();
+  });
+
   Network.onSpawnSizeChange(({ size }) => {
     State.set("mapSize", size);
     const spawn = State.get("spawnCircle");
