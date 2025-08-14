@@ -26,7 +26,7 @@ const io = socketio(server, {
 });
 
 // --- Serve static client files ---
-app.use(express.static(path.join(__dirname, "..", "public")));
+app.use(express.static(path.join(__dirname, "public")));
 
 // --- Create singleton managers ---
 const lobby = new LobbyManager(io);
