@@ -108,25 +108,31 @@ class Canvas {
 
 
     // Draw shared spawn circle
-    const { x, y, diameter } = State.get("spawnCircle");
-    ctx.beginPath();
-    ctx.arc(x, y, diameter / 2 - 1, 0, 2 * Math.PI);
-    ctx.strokeStyle = "deepskyblue";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    const spawnCircle = State.get("spawnCircle");
+    if (spawnCircle) {
+      const { x, y, diameter } = spawnCircle;
+      ctx.beginPath();
+      ctx.arc(x, y, diameter / 2 - 1, 0, 2 * Math.PI);
+      ctx.strokeStyle = "deepskyblue";
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-    // Label below circle
-    ctx.fillStyle = "deepskyblue";
-    ctx.font = "9px Lexend";
-    ctx.textAlign = "center";
-    ctx.fillText("spawn", x, y + diameter / 2 + 8);
+      // Label below circle
+      ctx.fillStyle = "deepskyblue";
+      ctx.font = "9px Lexend";
+      ctx.textAlign = "center";
+      ctx.fillText("spawn", x, y + diameter / 2 + 8);
+    }
 
-    const { x: czX, y: czY, width: czW, height: czH } = State.get("capZone");
-    ctx.strokeStyle = "yellow";
-    ctx.fillStyle = "yellow";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(czX, czY, czW, czH);
-    ctx.fillText("CZ", czX + czW / 2, czY + czH / 2 + 3);
+    const capZone = State.get("capZone");
+    if (capZone && capZone.x !== null && capZone.y !== null) {
+      const { x: czX, y: czY, width: czW, height: czH } = capZone;
+      ctx.strokeStyle = "yellow";
+      ctx.fillStyle = "yellow";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(czX, czY, czW, czH);
+      ctx.fillText("CZ", czX + czW / 2, czY + czH / 2 + 3);
+    }
   }
 }
 
