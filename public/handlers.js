@@ -1,15 +1,9 @@
 /**
- * handlers.js - Client-Side Input Handlers
+ * handlers.js - UI Event Binders
  *
- * This file contains all the functions that respond to user interactions
- * (clicks, key presses, mouse movements, etc.).
- *
- * Key Principle: Handlers should be "thin". Their primary responsibilities are:
- * 1. Interpret user input.
- * 2. Perform purely local, non-authoritative UI previews (e.g., showing a line as it's being drawn).
- * 3. Delegate actions that change the authoritative game state to the server via the Network module.
- *
- * Authoritative state changes are received from the server and applied in app.js.
+ * This file connects user interface events (clicks, mouse moves, key presses)
+ * to the application's state and network logic. It uses a state-flag based
+ * model for robust mouse handling and includes a full set of keyboard shortcuts.
  */
 
 import UI from "./ui.js";
@@ -19,439 +13,410 @@ import Canvas from "./canvas.js";
 import { copyLineInfo } from "./exportLines.js";
 import {
   getHitLineId,
-  updateLineTypeUI,
-  handleUndoLastLine,
-  pointFromEventOnCanvas,
   distance,
-  computeAngleDeg,
+  pointFromEventOnCanvas,
+  getLineProps,
+  handleUndoLastLine,
+  updateLineTypeUI,
   normalizeAngle,
 } from "./utils-client.js";
 
-const MIN_LINE_LENGTH_SQ = 25; // Min length to register a new line (5px^2)
+// --- State Flags for Mouse Actions ---
+let isDraggingLine = false;
+let isDraggingSpawn = false;
+let isDraggingCapZone = false;
+let isDrawingLine = false;
 
-// ---- UI Element Handlers ----
+// --- Canvas Event Handlers ---
+function handleCanvasDown(e) {
+  if (e.button !== 0) return; // Only handle left-clicks
+  const point = pointFromEventOnCanvas(e);
+  State.set("mouse", point);
 
-export function handleJoin() {
-  const name = UI.elems.usernameInput.value.trim();
-  if (!name) {
-    return alert("Please enter a username.");
-  }
-  State.set("username", name);
-  Network.joinLobby(name);
-}
-
-export function handleReadyToggle(ev) {
-  Network.setReady(ev.target.checked);
-}
-
-export function handleVoteToggle(ev) {
-  Network.voteFinish(ev.target.checked);
-}
-
-export function handleLineTypeChange(ev) {
-  const type = ev.target.value;
-  const id = State.get("selectedLineId");
-  if (!id) return;
-  // Delegate change to server
-  Network.emitLineUpdate({ id, type });
-  // Immediately update local UI for responsiveness
-  updateLineTypeUI(type);
-}
-
-export function handleSendChat() {
-  const msg = UI.elems.chatInput.value.trim();
-  if (!msg) return;
-  Network.sendChat(msg);
-  UI.elems.chatInput.value = "";
-}
-
-export function handleEnterKey(onSubmit) {
-  return (ev) => {
-    if (ev.key === "Enter") {
-      onSubmit();
-    }
-  };
-}
-
-export function handleHideUsernamesToggle(ev) {
-  State.set("hideUsernames", ev.target.checked);
-}
-
-export function handleDeleteLine() {
-  const id = State.get("selectedLineId");
-  if (!id) return;
-  // Delegate deletion to server
-  Network.deleteLine(id);
-}
-
-export function handleSpawnSliderInput(ev) {
-  const size = Number(ev.target.value);
-  // Update local UI immediately for responsiveness
-  if (UI.elems.spawnSizeValue) {
-    UI.elems.spawnSizeValue.innerText = String(size);
-  }
-  // Delegate change to server
-  Network.emitSpawnSizeChange(size);
-}
-
-// ---- Canvas Interaction Handlers ----
-
-export function handleCanvasDown(evt) {
-  const pt = pointFromEventOnCanvas(evt);
-
-  // Check for dragging map objects (spawn, cap zone)
+  // Priority 1: Dragging map objects
   const spawn = State.get("spawnCircle");
-  if (spawn && distance(pt, spawn) <= spawn.diameter / 2) {
-    State.set("draggingSpawn", true);
+  if (spawn && distance(point, spawn) < spawn.diameter / 2) {
+    isDraggingSpawn = true;
     return;
   }
-  const capZone = State.get("capZone");
+  const cz = State.get("capZone");
   if (
-    capZone &&
-    pt.x >= capZone.x &&
-    pt.x <= capZone.x + capZone.width &&
-    pt.y >= capZone.y &&
-    pt.y <= capZone.y + capZone.height
+    cz &&
+    point.x > cz.x &&
+    point.x < cz.x + cz.width &&
+    point.y > cz.y &&
+    point.y < cz.y + cz.height
   ) {
-    State.set("draggingCapZone", true);
+    isDraggingCapZone = true;
     return;
   }
 
-  // Check for hitting an existing line to select and drag it
-  const hitId = getHitLineId(pt);
-  if (hitId) {
-    State.set("selectedLineId", hitId);
-    const line = State.get("lines").find((l) => l.id === hitId);
-    if (line) {
-      // Set up a preview state for dragging
-      State.set("draggingPreview", {
-        id: hitId,
-        mouseStart: pt,
-        originalLine: { ...line },
-      });
-      window.addEventListener("mousemove", handleCanvasMoveDuringDrag);
-      window.addEventListener("mouseup", handleCanvasDragEnd);
-    }
-    return;
-  }
-
-  // If nothing else was hit, start drawing a new line
-  State.set("selectedLineId", null);
-  State.set("startPt", pt);
-}
-
-export function handleCanvasMove(evt) {
-  const pt = pointFromEventOnCanvas(evt);
-  State.set("mouse", pt); // Keep track of mouse position for other uses
-
-  // Handle dragging map objects (local preview)
-  if (State.get("draggingSpawn")) {
-    const spawn = State.get("spawnCircle");
-    State.set("spawnCircle", { ...spawn, x: pt.x, y: pt.y });
-    Canvas.draw();
-    return;
-  }
-  if (State.get("draggingCapZone")) {
-    const capZone = State.get("capZone");
-    State.set("capZone", {
-      ...capZone,
-      x: pt.x - capZone.width / 2,
-      y: pt.y - capZone.height / 2,
+  // Priority 2: Clicking an existing line to select/drag
+  const hitLineId = getHitLineId(point);
+  if (hitLineId) {
+    State.set("selectedLineId", hitLineId);
+    isDraggingLine = true;
+    const line = State.get("lines").find((l) => l.id === hitLineId);
+    State.set("draggingPreview", {
+      mouseStart: point,
+      originalLine: line,
+      line: line,
     });
-    Canvas.draw();
     return;
   }
 
-  // Handle drawing a new line (local preview)
-  const startPt = State.get("startPt");
-  if (startPt) {
-    State.set("currentLine", { start: startPt, end: pt });
-    Canvas.draw();
+  // Priority 3: Deselect and start drawing a new line
+  State.set("selectedLineId", null);
+  isDrawingLine = true;
+  State.set("startPt", point);
+}
+
+function handleCanvasMove(e) {
+  const point = pointFromEventOnCanvas(e);
+  State.set("mouse", point);
+
+  if (isDraggingSpawn) {
+    const spawn = State.get("spawnCircle");
+    State.set("spawnCircle", { ...spawn, x: point.x, y: point.y });
+    return;
+  }
+  if (isDraggingCapZone) {
+    const cz = State.get("capZone");
+    State.set("capZone", {
+      ...cz,
+      x: point.x - cz.width / 2,
+      y: point.y - cz.height / 2,
+    });
+    return;
+  }
+  if (isDraggingLine) {
+    const preview = State.get("draggingPreview");
+    if (!preview) return;
+    const dx = point.x - preview.mouseStart.x;
+    const dy = point.y - preview.mouseStart.y;
+    const updatedLine = {
+      ...preview.originalLine,
+      start: {
+        x: preview.originalLine.start.x + dx,
+        y: preview.originalLine.start.y + dy,
+      },
+      end: {
+        x: preview.originalLine.end.x + dx,
+        y: preview.originalLine.end.y + dy,
+      },
+    };
+    State.set("draggingPreview", { ...preview, line: updatedLine });
+    return;
+  }
+  if (isDrawingLine) {
+    const startPt = State.get("startPt");
+    if (startPt) {
+      State.set("currentLine", { start: startPt, end: point });
+    }
   }
 }
 
-export function handleCanvasUp(evt) {
-  const pt = pointFromEventOnCanvas(evt);
-
-  // Finalize dragging map objects by notifying the server
-  if (State.get("draggingSpawn")) {
-    State.set("draggingSpawn", false);
+function handleCanvasUp(e) {
+  if (isDraggingSpawn) {
     const spawn = State.get("spawnCircle");
-    Network.emitSpawnCircleUpdate({ x: spawn.x, y: spawn.y });
-    return;
+    Network.setSpawnCircle({ x: spawn.x, y: spawn.y });
   }
-  if (State.get("draggingCapZone")) {
-    State.set("draggingCapZone", false);
-    const capZone = State.get("capZone");
-    Network.emitCapZoneUpdate({ x: capZone.x, y: capZone.y });
-    return;
+  if (isDraggingCapZone) {
+    const cz = State.get("capZone");
+    Network.setCapZone({ x: cz.x, y: cz.y });
   }
-
-  // Finalize drawing a new line
-  const startPt = State.get("startPt");
-  if (startPt) {
-    State.set("startPt", null);
-    State.set("currentLine", null);
-
-    const distSq = (pt.x - startPt.x) ** 2 + (pt.y - startPt.y) ** 2;
-    if (distSq > MIN_LINE_LENGTH_SQ) {
-      // Delegate line creation to the server
-      Network.drawLine({
-        start: startPt,
-        end: pt,
-        username: State.get("username"),
+  if (isDraggingLine) {
+    const preview = State.get("draggingPreview");
+    if (preview && preview.line) {
+      Network.updateLine({
+        id: preview.originalLine.id,
+        start: preview.line.start,
+        end: preview.line.end,
       });
     }
-    Canvas.draw();
   }
-}
+  if (isDrawingLine) {
+    const startPt = State.get("startPt");
+    const endPt = State.get("mouse");
+    if (startPt && distance(startPt, endPt) > 5) {
+      Network.createLine({ start: startPt, end: endPt });
+    }
+  }
 
-// Special handlers for dragging an existing line
-export function handleCanvasMoveDuringDrag(evt) {
-  const preview = State.get("draggingPreview");
-  if (!preview) return;
-
-  const pt = pointFromEventOnCanvas(evt);
-  const dx = pt.x - preview.mouseStart.x;
-  const dy = pt.y - preview.mouseStart.y;
-
-  // Update the preview object, NOT the main state's line array
-  const updatedPreviewLine = {
-    ...preview.originalLine,
-    start: {
-      x: preview.originalLine.start.x + dx,
-      y: preview.originalLine.start.y + dy,
-    },
-    end: {
-      x: preview.originalLine.end.x + dx,
-      y: preview.originalLine.end.y + dy,
-    },
-  };
-
-  State.set("draggingPreview", { ...preview, line: updatedPreviewLine });
-  Canvas.draw(); // Canvas will know to draw this preview line
-}
-
-export function handleCanvasDragEnd() {
-  const preview = State.get("draggingPreview");
-  if (!preview || !preview.line) return;
-
-  // Delegate the final position to the server
-  Network.emitLineUpdate({
-    id: preview.id,
-    start: preview.line.start,
-    end: preview.line.end,
-  });
-
-  // Clean up preview state and listeners
+  // Reset flags & preview state
+  isDraggingLine = false;
+  isDraggingSpawn = false;
+  isDraggingCapZone = false;
+  isDrawingLine = false;
+  State.set("startPt", null);
+  State.set("currentLine", null);
   State.set("draggingPreview", null);
-  window.removeEventListener("mousemove", handleCanvasMoveDuringDrag);
-  window.removeEventListener("mouseup", handleCanvasDragEnd);
-  Canvas.draw();
 }
 
-// ---- Keyboard Handlers ----
+// --- Keyboard Handlers ---
+function handleKeyDown(e) {
+  const active = document.activeElement;
+  if (active && active.tagName === "INPUT") return;
 
-export function handleKeyCommands(ev) {
-  if (document.activeElement === UI.elems.chatInput) return;
-
-  const key = ev.key.toLowerCase();
+  const key = e.key.toLowerCase();
   const selId = State.get("selectedLineId");
 
-  // General commands
-  switch (key) {
-    case "h":
-      const current = State.get("hideUsernames");
-      State.set("hideUsernames", !current);
-      UI.elems.hideUsernamesCheckbox.checked = !current;
-      return;
-    case "c":
-      if (ev.ctrlKey) copyLineInfo(State.get("lines"));
-      return;
-    case "z":
-      if (ev.ctrlKey) {
-        ev.preventDefault();
-        handleUndoLastLine(); // This util function should probably emit to server too
-      }
-      return;
+  // General commands (no selection needed)
+  if (key === "z" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    handleUndoLastLine();
+    return;
+  }
+  if (key === "c") {
+    copyLineInfo(State.get("lines"));
+    return;
   }
 
-  // Commands that require a selected line
+  if (key === "c") {
+    copyLineInfo(State.get("lines"));
+    return;
+  }
   if (!selId) return;
-
   const line = State.get("lines").find((l) => l.id === selId);
   if (!line) return;
 
-  // ALT + Arrow keys for width/height
-  if (ev.altKey) {
-    const step = ev.shiftKey ? 10 : 1;
+  // Arrow nudges
+  if (e.key.startsWith("Arrow") && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    const nudge = { x: 0, y: 0 };
+    if (e.key === "ArrowUp") nudge.y = -1;
+    if (e.key === "ArrowDown") nudge.y = 1;
+    if (e.key === "ArrowLeft") nudge.x = -1;
+    if (e.key === "ArrowRight") nudge.x = 1;
+    Network.updateLine({ id: selId, nudge });
+    return;
+  }
+
+  // ALT + Arrow for width/height
+  if (e.altKey && e.key.startsWith("Arrow")) {
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
     if (key === "arrowleft" || key === "arrowright") {
-      ev.preventDefault();
       const delta = key === "arrowleft" ? -step : step;
-      Network.emitLineUpdate({ id: selId, widthDelta: delta });
+      Network.updateLine({ id: selId, widthDelta: delta });
     } else if (key === "arrowup" || key === "arrowdown") {
-      ev.preventDefault();
       const delta = key === "arrowup" ? step : -step;
-      Network.emitLineUpdate({ id: selId, heightDelta: delta });
+      Network.updateLine({ id: selId, heightDelta: delta });
     }
     return;
   }
 
-  // SHIFT + Arrow keys for angle
-  if (ev.shiftKey && (key === "arrowleft" || key === "arrowright")) {
-    ev.preventDefault();
-    const step = ev.ctrlKey ? 10 : 1;
+  // SHIFT + Arrow for angle
+  if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
+    e.preventDefault();
+    const step = e.ctrlKey ? 10 : 1;
     const delta = key === "arrowleft" ? -step : step;
-    Network.emitLineUpdate({ id: selId, angleDelta: delta });
+    Network.updateLine({ id: selId, angleDelta: delta });
     return;
   }
 
-  // Single-key shortcuts for line properties
+  // Single-key shortcuts
   switch (key) {
     case "b":
-      Network.emitLineUpdate({
+      Network.updateLine({
         id: selId,
         type: line.type === "bouncy" ? "none" : "bouncy",
       });
       break;
     case "d":
-      Network.emitLineUpdate({
+      Network.updateLine({
         id: selId,
         type: line.type === "death" ? "none" : "death",
       });
       break;
     case "n":
-      Network.emitLineUpdate({ id: selId, type: "none" });
+      Network.updateLine({ id: selId, type: "none" });
       break;
     case "x":
     case "delete":
-      handleDeleteLine();
+    case "backspace":
+      Network.deleteLine(selId);
       break;
   }
 }
 
-// Nudge handlers (Arrow keys without modifiers)
-const nudgeState = { keys: new Set(), repeatTimer: null };
-function handleNudge() {
-  if (nudgeState.keys.size === 0) return;
-  const selId = State.get("selectedLineId");
-  if (!selId) return;
-
-  const payload = { id: selId, nudge: {} };
-  if (nudgeState.keys.has("ArrowUp")) payload.nudge.y = -1;
-  if (nudgeState.keys.has("ArrowDown")) payload.nudge.y = 1;
-  if (nudgeState.keys.has("ArrowLeft")) payload.nudge.x = -1;
-  if (nudgeState.keys.has("ArrowRight")) payload.nudge.x = 1;
-
-  Network.emitLineUpdate(payload);
-}
-
-export function handleArrowKeyDown(ev) {
-  if (document.activeElement === UI.elems.chatInput) return;
-  const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
-  if (!arrows.includes(ev.key) || ev.altKey || ev.shiftKey || ev.ctrlKey)
-    return;
-
-  ev.preventDefault();
-  if (nudgeState.keys.has(ev.key)) return; // Already handling this key
-
-  nudgeState.keys.add(ev.key);
-  handleNudge(); // Nudge once immediately
-
-  // Start repeating if key is held
-  clearTimeout(nudgeState.repeatTimer);
-  nudgeState.repeatTimer = setTimeout(() => {
-    nudgeState.repeatTimer = setInterval(handleNudge, 50); // Repeat every 50ms
-  }, 200); // after an initial 200ms delay
-}
-
-export function handleArrowKeyUp(ev) {
-  const arrows = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
-  if (!arrows.includes(ev.key)) return;
-
-  ev.preventDefault();
-  nudgeState.keys.delete(ev.key);
-
-  if (nudgeState.keys.size === 0) {
-    clearTimeout(nudgeState.repeatTimer);
-    clearInterval(nudgeState.repeatTimer);
-    nudgeState.repeatTimer = null;
-  }
-}
-
-// ---- Bind All UI Events ----
-
+// --- Main Binding Function ---
 let areEventsBound = false;
+
+/**
+ * Helper: safely add event listener if element exists.
+ * Logs a warning when missing but doesn't throw.
+ */
+function safeAddEvent(elem, eventName, handler) {
+  if (!elem) {
+    // keep console.info to avoid noisy warnings during tests, but helpful while debugging
+    console.warn(
+      `[bindUIEvents] Missing element for ${eventName}; skipping binding.`,
+    );
+    return;
+  }
+  elem.addEventListener(eventName, handler);
+}
+
+/**
+ * createSliderHandler expects propName to be one of:
+ *   "width", "height", "angle"
+ * and maps it to the UI keys:
+ *   lineWidthSlider, lineWidthValue, etc.
+ */
+function createSliderHandlerFactory(elems) {
+  return (propName) => {
+    if (!propName) return;
+    // map "width" -> "lineWidth", "height" -> "lineHeight", "angle" -> "lineAngle"
+    const capitalized = propName[0].toUpperCase() + propName.slice(1);
+    const prefix = `line${capitalized}`;
+    const sliderKey = `${prefix}Slider`;
+    const valueKey = `${prefix}Value`;
+
+    const slider = elems[sliderKey];
+    const valueLabel = elems[valueKey];
+
+    if (!slider) {
+      console.warn(
+        `[bindUIEvents] Slider ${sliderKey} not found, skipping handlers for ${propName}.`,
+      );
+      return;
+    }
+
+    safeAddEvent(slider, "input", () => {
+      if (valueLabel) valueLabel.innerText = slider.value;
+    });
+
+    safeAddEvent(slider, "change", () => {
+      const id = State.get("selectedLineId");
+      if (id) {
+        // parse suitable numeric value; fallback to Number for safety
+        const parsed = parseFloat(slider.value);
+        const payload = {};
+        payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
+        Network.updateLine({ id, ...payload });
+      }
+    });
+  };
+}
+
 export function bindUIEvents() {
   if (areEventsBound) return;
-  const e = UI.elems;
 
-  // Lobby
-  e.joinBtn.addEventListener("click", handleJoin);
-  e.usernameInput.addEventListener("keydown", handleEnterKey(handleJoin));
-  e.readyCheckbox.addEventListener("change", handleReadyToggle);
-  e.voteCheckbox.addEventListener("change", handleVoteToggle);
+  // Ensure UI was initialized (best-effort). If UI.init exists and no elems found, call it.
+  try {
+    if (!UI.elems || Object.keys(UI.elems).length === 0) {
+      if (typeof UI.init === "function") {
+        UI.init();
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[bindUIEvents] UI.init invocation failed or UI not ready:",
+      err,
+    );
+  }
 
-  // Chat
-  e.chatSendBtn.addEventListener("click", handleSendChat);
-  e.chatInput.addEventListener("keydown", handleEnterKey(handleSendChat));
+  const e = UI.elems || {};
 
-  // Canvas
-  e.canvas.addEventListener("mousedown", handleCanvasDown);
-  e.canvas.addEventListener("mousemove", handleCanvasMove);
-  e.canvas.addEventListener("mouseup", handleCanvasUp);
-  e.canvas.addEventListener("mouseleave", handleCanvasUp); // Treat leaving as mouse up
+  // convenience local factory
+  const createSliderHandler = createSliderHandlerFactory(e);
 
-  // Line Property Panel
-  e.deleteLineBtn.addEventListener("click", handleDeleteLine);
-  e.lineTypeSelect.addEventListener("change", handleLineTypeChange);
-  e.toFrontBtn.addEventListener("click", () =>
-    Network.reorderLine({ id: State.get("selectedLineId"), toBack: false }),
+  // BUTTONS / CONTROLS (all guarded)
+  safeAddEvent(e.joinBtn, "click", () => {
+    const nameInput = e.usernameInput;
+    if (!nameInput) return;
+    const name = nameInput.value;
+    if (name) {
+      Network.joinLobby(name);
+      State.set("username", name);
+      // if (UI.hide) UI.hide("home");
+      // if (UI.show) UI.show("lobby");
+    }
+  });
+
+  safeAddEvent(e.readyCheckbox, "change", (ev) =>
+    Network.setReady(ev.target.checked),
   );
-  e.toBackBtn.addEventListener("click", () =>
-    Network.reorderLine({ id: State.get("selectedLineId"), toBack: true }),
+  safeAddEvent(e.voteCheckbox, "change", (ev) =>
+    Network.voteFinish(ev.target.checked),
   );
 
-  // Sliders for line properties
-  const createSliderHandler = (propName) => (ev) => {
+  safeAddEvent(e.chatSendBtn, "click", () => {
+    const input = e.chatInput;
+    if (!input) return;
+    const msg = input.value;
+    if (msg) Network.sendChat(msg);
+    input.value = "";
+  });
+
+  safeAddEvent(e.chatInput, "keydown", (ev) => {
+    if (ev.key === "Enter" && e.chatSendBtn) e.chatSendBtn.click();
+  });
+
+  safeAddEvent(e.toFrontBtn, "click", () =>
+    Network.reorderLines({ id: State.get("selectedLineId"), toBack: false }),
+  );
+  safeAddEvent(e.toBackBtn, "click", () =>
+    Network.reorderLines({ id: State.get("selectedLineId"), toBack: true }),
+  );
+
+  safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo(State.get("lines")));
+  safeAddEvent(
+    e.popupCloseBtn,
+    "click",
+    () => UI.hide && UI.hide("gameEndPopup"),
+  );
+  safeAddEvent(e.hideUsernamesCheckbox, "change", (ev) =>
+    State.set("hideUsernames", ev.target.checked),
+  );
+
+  // Canvas & Window (canvas must exist for canvas-specific handlers)
+  safeAddEvent(e.canvas, "mousedown", handleCanvasDown);
+  // window-level events can't be missing — still guard just in case
+  window.addEventListener("mousemove", handleCanvasMove);
+  window.addEventListener("mouseup", handleCanvasUp);
+  window.addEventListener("keydown", handleKeyDown);
+
+  // Line editor select
+  safeAddEvent(e.lineTypeSelect, "change", (ev) => {
     const id = State.get("selectedLineId");
-    if (!id) return;
-    const value = Number(ev.target.value);
-    const payload = { id, [propName]: value };
-    if (propName === "angle") payload[propName] = normalizeAngle(value);
+    if (id) Network.updateLine({ id, type: ev.target.value });
+  });
 
-    // Update UI value label immediately
-    const valueElem = UI.elems[`${propName}Value`];
-    if (valueElem) valueElem.innerText = String(payload[propName]);
+  // Correct mapping for sliders: accepts "width"/"height"/"angle" and maps to the "lineXxx" keys.
+  createSliderHandler("width");
+  createSliderHandler("height");
+  createSliderHandler("angle");
 
-    Network.emitLineUpdate(payload);
-  };
-  e.lineWidthSlider.addEventListener("input", createSliderHandler("width"));
-  e.lineHeightSlider.addEventListener("input", createSliderHandler("height"));
-  e.lineAngleSlider.addEventListener("input", createSliderHandler("angle"));
+  safeAddEvent(e.deleteLineBtn, "click", () => {
+    const id = State.get("selectedLineId");
+    if (id) Network.deleteLine(id);
+  });
 
-  // Global Settings & Buttons
-  e.hideUsernamesCheckbox.addEventListener("change", handleHideUsernamesToggle);
-  e.copyMapBtn.addEventListener("click", () =>
-    copyLineInfo(State.get("lines")),
-  );
-  e.popupCloseBtn.addEventListener("click", () => UI.hide("gameEndPopup"));
-  e.spawnSizeSlider.addEventListener("input", handleSpawnSliderInput);
+  // Map Settings
+  // spawnSizeSlider is also created in UI._createLineEditor; guard it
+  safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
+    const size = parseInt(ev.target.value, 10);
+    if (e.spawnSizeValue) e.spawnSizeValue.innerText = size;
+    Network.setMapSize(size);
+  });
 
-  // Global Keyboard Listeners
-  window.addEventListener("keydown", handleKeyCommands);
-  window.addEventListener("keydown", handleArrowKeyDown);
-  window.addEventListener("keyup", handleArrowKeyUp);
-
-  // Focus chat on Enter key
+  // Global: Focus chat on Enter key (guard e.chatInput)
   window.addEventListener("keydown", (ev) => {
-    if (
-      ev.key === "Enter" &&
-      document.activeElement !== e.chatInput &&
-      State.get("gameActive")
-    ) {
-      ev.preventDefault();
-      e.chatInput.focus();
+    try {
+      if (
+        ev.key === "Enter" &&
+        e.chatInput &&
+        document.activeElement !== e.chatInput &&
+        State.get("gameActive")
+      ) {
+        ev.preventDefault();
+        e.chatInput.focus();
+      }
+    } catch (err) {
+      // defensive: ignore errors here
+      console.warn("[bindUIEvents] global Enter handler error:", err);
     }
   });
 

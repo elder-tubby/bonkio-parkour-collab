@@ -1,8 +1,8 @@
 import { normalizeAngle } from "./utils-client.js";
 
 /*
-Centralized selectors. Keep this complete and authoritative.
-*/
+ * Centralized selectors. Keep this complete and authoritative.
+ */
 const SELECTORS = {
   home: "#homeScreen",
   canvasWrap: "#canvasWrapper",
@@ -19,7 +19,7 @@ const SELECTORS = {
   chatSendBtn: "#chatSendBtn",
   chatMessages: "#chatMessages",
   gameEndPopup: "#gameEndPopup",
-  lineEditor: "#lineEditor", // Added for clarity
+  lineEditor: "#lineEditor",
 
   // line controls
   copyMapBtn: "#copyMapBtn",
@@ -50,9 +50,8 @@ const SELECTORS = {
 class UI {
   constructor() {
     this.elems = {};
-    this.CONTROL_ELEMENT_WIDTH = "80px"; // single source of truth for btn/select width
+    this.CONTROL_ELEMENT_WIDTH = "80px";
 
-    // groupings for consistent bulk toggles
     this.LINE_CONTROLS = [
       "pasteMapBtn",
       "deleteLineBtn",
@@ -71,7 +70,6 @@ class UI {
       "lineAngleValue",
     ];
 
-    // default display strings
     this.DISPLAY = {
       PANEL: "flex",
       CONTROL: "inline-flex",
@@ -80,22 +78,17 @@ class UI {
   }
 
   init() {
-    // single place to query DOM
     for (const key in SELECTORS) {
-        this.elems[key] = document.querySelector(SELECTORS[key]);
+      this.elems[key] = document.querySelector(SELECTORS[key]);
     }
 
     if (this.elems.canvas) {
       this.elems.ctx = this.elems.canvas.getContext("2d");
     }
 
-    // build editor area deterministically (creates DOM if missing)
     this._createLineEditor();
+    this.setLineSelectionVisible(false, true);
 
-    // ensure defaults: everything related to line editing starts hidden/disabled
-    this.setLineSelectionVisible(false, /* isNew */ true);
-
-    // style tweaks
     if (this.elems.lineEditor) {
       this.elems.lineEditor.style.fontSize = "12px";
       this.elems.lineEditor.style.fontFamily = "Lexend, system-ui, sans-serif";
@@ -153,26 +146,21 @@ class UI {
     spawnLabel.style.fontSize = "12px";
     spawnLabel.innerText = "Map Size:";
 
-    let spawnSlider = document.querySelector("#spawnSizeSlider");
-    if (!spawnSlider) {
-      spawnSlider = document.createElement("input");
-      spawnSlider.type = "range";
-      spawnSlider.id = "spawnSizeSlider";
-      spawnSlider.min = "1";
-      spawnSlider.max = "13";
-      spawnSlider.value = "6";
-    }
+    // Always create the slider since we cleared the container
+    const spawnSlider = document.createElement("input");
+    spawnSlider.type = "range";
+    spawnSlider.id = "spawnSizeSlider";
+    spawnSlider.min = "1";
+    spawnSlider.max = "13";
+    spawnSlider.value = "6";
     spawnSlider.style.flex = "1";
     spawnSlider.style.height = "20px";
     spawnSlider.style.marginRight = "0px";
     spawnSlider.style.minWidth = "150px";
     spawnSlider.style.maxWidth = "360px";
 
-    let spawnVal = document.querySelector("#spawnSizeValue");
-    if (!spawnVal) {
-      spawnVal = document.createElement("span");
-      spawnVal.id = "spawnSizeValue";
-    }
+    const spawnVal = document.createElement("span");
+    spawnVal.id = "spawnSizeValue";
     spawnVal.style.minWidth = "10px";
     spawnVal.style.textAlign = "right";
     spawnVal.innerText = spawnSlider.value;
@@ -195,29 +183,23 @@ class UI {
     rowDelete.style.justifyContent = "space-between";
 
     // Paste button
-    let pasteBtn = document.querySelector("#pasteMapBtn");
-    if (!pasteBtn) {
-      pasteBtn = document.createElement("button");
-      pasteBtn.id = "pasteMapBtn";
-      pasteBtn.disabled = true; // disabled by default; app logic may enable
-      pasteBtn.textContent = "Paste Map";
-      pasteBtn.title = "Paste map from clipboard";
-      pasteBtn.setAttribute("aria-label", "Paste Map");
-      pasteBtn.type = "button";
-    }
+    const pasteBtn = document.createElement("button");
+    pasteBtn.id = "pasteMapBtn";
+    pasteBtn.disabled = true; // disabled by default; app logic may enable
+    pasteBtn.textContent = "Paste Map";
+    pasteBtn.title = "Paste map from clipboard";
+    pasteBtn.setAttribute("aria-label", "Paste Map");
+    pasteBtn.type = "button";
     pasteBtn.style.height = "22px";
     pasteBtn.style.padding = "4px 4px";
     pasteBtn.style.fontSize = "12px";
     pasteBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
 
     // Delete button
-    let deleteBtn = document.querySelector("#deleteLineBtn");
-    if (!deleteBtn) {
-      deleteBtn = document.createElement("button");
-      deleteBtn.id = "deleteLineBtn";
-      deleteBtn.disabled = true;
-      deleteBtn.textContent = "Delete";
-    }
+    const deleteBtn = document.createElement("button");
+    deleteBtn.id = "deleteLineBtn";
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = "Delete";
     deleteBtn.style.height = "22px";
     deleteBtn.style.padding = "4px 4px";
     deleteBtn.style.fontSize = "12px";
@@ -225,13 +207,10 @@ class UI {
     deleteBtn.title = "Delete selected line";
 
     // Type select
-    let typeSelect = document.querySelector("#lineTypeSelect");
-    if (!typeSelect) {
-      typeSelect = document.createElement("select");
-      typeSelect.id = "lineTypeSelect";
-      typeSelect.disabled = true;
-      typeSelect.innerHTML = `<option value="none">None</option><option value="bouncy">Bouncy</option><option value="death">Death</option>`;
-    }
+    const typeSelect = document.createElement("select");
+    typeSelect.id = "lineTypeSelect";
+    typeSelect.disabled = true;
+    typeSelect.innerHTML = `<option value="none">None</option><option value="bouncy">Bouncy</option><option value="death">Death</option>`;
     typeSelect.style.height = "22px";
     typeSelect.style.fontSize = "12px";
     typeSelect.style.width = this.CONTROL_ELEMENT_WIDTH;
@@ -368,15 +347,12 @@ class UI {
         label.textContent = labelText;
       }
 
-      let input = document.querySelector("#" + id);
-      if (!input) {
-        input = document.createElement("input");
-        input.type = "range";
-        input.id = id;
-        input.min = String(min);
-        input.max = String(max);
-        input.value = String(defaultVal);
-      }
+      const input = document.createElement("input");
+      input.type = "range";
+      input.id = id;
+      input.min = String(min);
+      input.max = String(max);
+      input.value = String(defaultVal);
       input.style.flex = "1";
       input.style.height = "28px";
 
@@ -433,32 +409,25 @@ class UI {
     this.elems.lineWidthValue = w.value;
     this.elems.lineHeightValue = h.value;
     this.elems.lineAngleValue = a.value;
+    this.elems.lineWidthRow = w.row;
+    this.elems.lineHeightRow = h.row;
+    this.elems.lineAngleRow = a.row;
+
     this.elems.deleteLineBtn = deleteBtn;
     this.elems.lineTypeSelect = typeSelect;
-    this.elems.spawnSizeSlider = spawnSlider;
-    this.elems.spawnSizeValue = spawnVal;
     this.elems.toFrontBtn = toFrontBtn;
     this.elems.toBackBtn = toBackBtn;
     this.elems.pasteMapBtn = pasteBtn;
     this.elems.orderLabel = orderLabel;
-
-    // wiring: value labels
-    spawnSlider.addEventListener("input", () => {
-      spawnVal.innerText = spawnSlider.value;
-    });
-    [w.input, h.input, a.input].forEach((s, i) => {
-      const valueEl = [w.value, h.value, a.value][i];
-      s.addEventListener("input", () => {
-        valueEl.innerText = s.value;
-      });
-    });
   }
 
-  // generic helpers
   _setDisplay(elemOrKey, display) {
     const el =
       typeof elemOrKey === "string" ? this.elems[elemOrKey] : elemOrKey;
-    if (!el) return;
+    if (!el) {
+      console.warn(`[UI] Element with key "${elemOrKey}" not found.`);
+      return;
+    }
     el.style.display = display;
   }
 
@@ -469,7 +438,6 @@ class UI {
     if ("disabled" in el) el.disabled = Boolean(disabled);
   }
 
-  // Public: small convenience helpers (kept for other code)
   show(selectorKey) {
     this._setDisplay(selectorKey, this.DISPLAY.PANEL);
   }
@@ -477,25 +445,19 @@ class UI {
     this._setDisplay(selectorKey, this.DISPLAY.HIDDEN);
   }
 
-  /*
-Centralized: set visibility & enabled/disabled state for all line-related UI.
-*/
   setLineSelectionVisible(selected, isNew = false) {
     const show = Boolean(selected);
     const controlDisplay = show ? this.DISPLAY.CONTROL : this.DISPLAY.HIDDEN;
     const panelDisplay = show ? this.DISPLAY.PANEL : this.DISPLAY.HIDDEN;
 
-    // show/hide whole editor panel (right column with sliders)
     if (this.elems.lineEditor)
       this.elems.lineEditor.style.display = panelDisplay;
 
-    // status text visibility: hide when a line is selected
     if (this.elems.statusText)
       this.elems.statusText.style.display = show
         ? this.DISPLAY.HIDDEN
         : "block";
 
-    // line controls (paste, delete, type, order, front/back)
     this.LINE_CONTROLS.forEach((k) => {
       const el = this.elems[k];
       if (!el) return;
@@ -504,18 +466,25 @@ Centralized: set visibility & enabled/disabled state for all line-related UI.
       if ("disabled" in el) el.disabled = shouldDisable;
     });
 
-    // sliders + their value displays: they are also toggled by selection
-    this.SLIDER_KEYS.forEach((k) => {
-      const el = this.elems[k];
-      if (!el) return;
-      el.style.display = show ? "flex" : this.DISPLAY.HIDDEN;
-      if (el.tagName === "INPUT" && el.type === "range") {
+    // --- safer slider row handling (use explicit row refs, don't use closest()) ---
+    const sliderRows = [
+      ["lineWidthSlider", "lineWidthRow"],
+      ["lineHeightSlider", "lineHeightRow"],
+      ["lineAngleSlider", "lineAngleRow"],
+    ];
+
+    for (const [sliderKey, rowKey] of sliderRows) {
+      const row = this.elems[rowKey];
+      if (row) {
+        row.style.display = show ? this.DISPLAY.PANEL : this.DISPLAY.HIDDEN;
+      }
+      const el = this.elems[sliderKey];
+      if (el && el.tagName === "INPUT" && el.type === "range") {
         el.disabled = !show || Boolean(isNew);
       }
-    });
+    }
   }
 
-  // wrapper so existing code can call showLineEditor/hideLineEditor
   showLineEditor(line) {
     const selected = Boolean(line);
     const isNew = this._isNewLine(line);
@@ -553,7 +522,6 @@ Centralized: set visibility & enabled/disabled state for all line-related UI.
       this.elems.lineAngleValue.innerText = String(normalizeAngle(a));
   }
 
-  // small utilities for lobby / chat / players (kept intact but simplified checks)
   updateLobby(players) {
     if (!this.elems.readyList) return;
     this.elems.readyList.innerHTML = (players || [])
@@ -609,7 +577,7 @@ Centralized: set visibility & enabled/disabled state for all line-related UI.
     if (!this.elems.chatMessages) return;
     const p = document.createElement("p");
     if (isError) {
-      p.style.color = "#dc3545"; // Use a distinct error color
+      p.style.color = "#dc3545";
       p.style.fontStyle = "italic";
     }
     p.innerHTML = `<span class="chat-sender">${name}:</span> ${message}`;

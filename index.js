@@ -1,168 +1,84 @@
-/**
- * index.js - Main Server Entry Point
- *
- * This file sets up the Express server, initializes Socket.IO, and wires up
- * the core application logic modules (LobbyManager, GameManager).
- *
- * It defines a single point of entry for all incoming socket events and
- * delegates the handling of those events to the appropriate manager.
- */
-
-const path = require("path");
-const express = require("express");
+// server/index.js
 const http = require("http");
-const socketio = require("socket.io");
-
-const config = require("./config");
+const express = require("express");
+const { Server } = require("socket.io");
 const LobbyManager = require("./lobbyManager");
 const { GameManager } = require("./gameManager");
 
 const app = express();
 const server = http.createServer(app);
-const io = socketio(server, {
-  cors: {
-    origin: "*",
-  },
-});
+const io = new Server(server);
 
-// --- Serve static client files ---
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static("public"));
 
-// --- Create singleton managers ---
 const lobby = new LobbyManager(io);
 const game = new GameManager(io, lobby);
 
-// --- Centralized Event Names (Client -> Server) ---
-const EVENTS = {
-  // Connection / Lobby
-  JOIN_LOBBY: "joinLobby",
-  SET_READY: "setReady",
-  DISCONNECT: "disconnect",
-
-  // Game Flow
-  VOTE_FINISH: "voteFinish",
-
-  // Line Manipulation
-  DRAW_LINE: "drawLine",
-  UPDATE_LINE: "updateLine",
-  DELETE_LINE: "deleteLine",
-  REORDER_LINE: "reorderLine",
-
-  // Map Object Manipulation
-  UPDATE_SPAWN_CIRCLE: "updateSpawnCircle",
-  UPDATE_CAP_ZONE: "updateCapZone",
-  UPDATE_MAP_SIZE: "updateMapSize",
-
-  // Communication
-  CHAT_MESSAGE: "chatMessage",
-};
-
-// --- Rate Limiting for Chat ---
-const CHAT_CONFIG = {
-  MESSAGE_LIMIT: 5,
-  MESSAGE_WINDOW_MS: 10000,
-  MAX_MSG_LENGTH: 250,
-};
-const messageHistory = new Map();
-
-// --- Main Connection Handler ---
 io.on("connection", (socket) => {
-  if (game.active) {
-    socket.emit("gameInProgress");
-  }
+  console.log("A user connected:", socket.id);
+  socket.emit("connectWithId", socket.id);
 
-  // --- Lobby Handlers ---
-  socket.on(EVENTS.JOIN_LOBBY, (name) => {
-    if (Object.keys(lobby.players).length >= config.MAX_PLAYERS) {
-      return socket.emit("lobbyFull");
-    }
+  socket.on("joinLobby", (name) => {
     const result = lobby.addPlayer(socket.id, name);
-    if (result && result.error === "duplicateName") {
+    if (result.error) {
       return socket.emit("lobbyNameTaken");
+    }
+    lobby.broadcastLobby();
+    if (game.active) {
+      socket.emit("gameInProgress");
     }
   });
 
-  socket.on(EVENTS.SET_READY, (isReady) => {
+  // --- FIX for Late Join & Game Start (Problems 4 & 5) ---
+  socket.on("setReady", (isReady) => {
+    if (!lobby.players[socket.id]) return;
+
     lobby.setReady(socket.id, isReady);
-    // Check if the game should start
-    if (!game.active && lobby.areAllPlayersReady()) {
+
+    if (game.active && isReady) {
+      // If a game is running and the player readies up, add them to it.
+      game.addParticipant(socket.id);
+    } else if (!game.active && lobby.canGameStart()) {
+      // If no game is running, check if enough players are ready to start one.
       game.start();
     }
   });
 
-  // --- Game Handlers ---
-  socket.on(EVENTS.VOTE_FINISH, (vote) => {
-    game.voteFinish(socket.id, vote);
-  });
+  // Game Actions
+  socket.on("createLine", (lineData) =>
+    game.handleLineCreation(socket.id, lineData),
+  );
+  socket.on("updateLine", (updateData) =>
+    game.handleLineUpdate(socket.id, updateData),
+  );
+  socket.on("deleteLine", (lineId) =>
+    game.handleLineDeletion(socket.id, lineId),
+  );
+  socket.on("reorderLines", (reorderData) =>
+    game.handleLineReorder(socket.id, reorderData),
+  );
 
-  // --- Line & Map Object Handlers (Delegated to GameManager) ---
-  socket.on(EVENTS.DRAW_LINE, (lineData) => {
-    game.handleLineCreation(socket.id, lineData);
-  });
+  // Map Object Actions
+  socket.on("setSpawnCircle", (pos) => game.setSpawnCircle(socket.id, pos));
+  socket.on("setCapZone", (pos) => game.setCapZone(socket.id, pos));
+  socket.on("setMapSize", (size) => game.setMapSize(socket.id, size));
 
-  socket.on(EVENTS.UPDATE_LINE, (payload) => {
-    game.handleLineUpdate(socket.id, payload);
-  });
-
-  socket.on(EVENTS.DELETE_LINE, (lineId) => {
-    game.handleLineDeletion(socket.id, lineId);
-  });
-
-  socket.on(EVENTS.REORDER_LINE, (payload) => {
-    game.handleLineReorder(socket.id, payload);
-  });
-
-  socket.on(EVENTS.UPDATE_SPAWN_CIRCLE, (data) => {
-    game.setSpawnCircle(socket.id, data);
-  });
-
-  socket.on(EVENTS.UPDATE_CAP_ZONE, (data) => {
-    game.setCapZone(socket.id, data);
-  });
-
-  socket.on(EVENTS.UPDATE_MAP_SIZE, (size) => {
-    game.setMapSize(socket.id, size);
-  });
-
-  // --- Chat Handler with Rate Limiting ---
-  socket.on(EVENTS.CHAT_MESSAGE, (msg) => {
+  // Chat
+  socket.on("sendChat", (message) => {
     const player = lobby.players[socket.id];
-    if (!player || typeof msg !== "string" || !msg.trim()) return;
-
-    const trimmedMsg = msg.slice(0, CHAT_CONFIG.MAX_MSG_LENGTH);
-
-    const now = Date.now();
-    const history = messageHistory.get(socket.id) || [];
-    const recentMessages = history.filter(
-      (ts) => now - ts < CHAT_CONFIG.MESSAGE_WINDOW_MS,
-    );
-
-    if (recentMessages.length >= CHAT_CONFIG.MESSAGE_LIMIT) {
-      return socket.emit("chatError", {
-        reason: "You're sending messages too quickly.",
-      });
+    if (player) {
+      io.emit("chatMessage", { name: player.name, message });
     }
-
-    recentMessages.push(now);
-    messageHistory.set(socket.id, recentMessages);
-
-    io.emit("chatMessage", { name: player.name, message: trimmedMsg });
   });
 
-  // --- Disconnect Handler ---
-  socket.on(EVENTS.DISCONNECT, () => {
-    const playerName = lobby.players[socket.id]?.name;
-    game.handleDisconnect(socket.id); // Handle game logic first
-    lobby.removePlayer(socket.id); // Then update lobby
-    messageHistory.delete(socket.id);
-    if (playerName) {
-      console.log(`Player ${playerName} (${socket.id}) disconnected.`);
-    }
+  socket.on("disconnect", () => {
+    console.log("A user disconnected:", socket.id);
+    game.handleDisconnect(socket.id);
+    lobby.removePlayer(socket.id);
   });
 });
 
-// --- Start Server ---
-const PORT = process.env.PORT || config.PORT;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server listening on port ${PORT}`);
 });

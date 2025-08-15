@@ -1,4 +1,3 @@
-// canvas.js
 // Canvas drawing logic
 import State from "./state.js";
 import UI from "./ui.js";
@@ -14,7 +13,6 @@ class Canvas {
     ctx.fillStyle = "white";
     ctx.textAlign = "left";
 
-    // helper to compute end based on width/angle if present
     const computeEnd = (line) => {
       if (typeof line.width === "number" && typeof line.angle === "number") {
         const r = (line.angle * Math.PI) / 180;
@@ -26,112 +24,111 @@ class Canvas {
       return line.end;
     };
 
+    // Draw all committed lines from the main state
     const lines = State.get("lines");
     lines.forEach(
       ({ id, start, end, symbol, type, width, height, angle }, index) => {
+        // Don't draw the original version of the line being dragged
+        const preview = State.get("draggingPreview");
+        if (preview && preview.originalLine.id === id) {
+          return;
+        }
+
         const isSelected = id === State.get("selectedLineId");
-
-        // compute drawing end using stored width/angle if present
         const drawEnd = computeEnd({ start, end, width, angle });
-
-        // Determine base color
         let baseColor = "white";
         if (type === "death") baseColor = "red";
-        else if (type === "bouncy")
-          baseColor = `rgb(${(10994878 >> 16) & 0xff}, ${(10994878 >> 8) & 0xff}, ${10994878 & 0xff})`;
+        else if (type === "bouncy") baseColor = `rgb(168, 162, 158)`;
 
-        // Map logical 'height' directly to visible stroke thickness (1 unit = 1 px)
-        // clamp to reasonable maximum to avoid blowing canvas: allow up to 1000 px
-        const rawHeight = typeof height === "number" ? height : 4; // default 4
         const visualThickness = Math.max(
           1,
-          Math.min(1000, Math.round(rawHeight)),
+          Math.min(1000, Math.round(height ?? 4)),
         );
 
         ctx.save();
-
         if (isSelected) {
-          // Outer highlight (slightly larger than visual thickness)
           ctx.lineWidth = Math.max(visualThickness + 4, 6);
           ctx.strokeStyle = "yellow";
           ctx.beginPath();
           ctx.moveTo(start.x, start.y);
           ctx.lineTo(drawEnd.x, drawEnd.y);
           ctx.stroke();
-
-          // Inner main stroke with visualThickness
-          ctx.lineWidth = visualThickness;
-          ctx.strokeStyle = baseColor;
-          ctx.beginPath();
-          ctx.moveTo(start.x, start.y);
-          ctx.lineTo(drawEnd.x, drawEnd.y);
-          ctx.stroke();
-        } else {
-          ctx.lineWidth = visualThickness;
-          ctx.strokeStyle = baseColor;
-          ctx.beginPath();
-          ctx.moveTo(start.x, start.y);
-          ctx.lineTo(drawEnd.x, drawEnd.y);
-          ctx.stroke();
         }
 
-        // Username and line number label
-        if (symbol && !State.get("hideUsernames")) {
-          
-          const lineNumber = index + 1;
-          const label = `${lineNumber} ${symbol}`;
+        ctx.lineWidth = visualThickness;
+        ctx.strokeStyle = baseColor;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(drawEnd.x, drawEnd.y);
+        ctx.stroke();
 
+        if (symbol && !State.get("hideUsernames")) {
+          const label = `${index + 1} ${symbol}`;
           ctx.lineWidth = 3;
-          ctx.strokeStyle = "black"; // outline
+          ctx.strokeStyle = "black";
           ctx.strokeText(label, start.x + 5, start.y - 5);
           ctx.fillStyle = isSelected ? "yellow" : "#ccc";
           ctx.fillText(label, start.x + 5, start.y - 5);
         }
-
         ctx.restore();
       },
     );
 
-    // Draw preview line if exists
-    const preview = State.get("currentLine");
-    if (preview) {
-      ctx.save(); // ✅ isolate preview styles
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";      // optional but helps visibility
+    // --- FIX for Dragging Preview (Problem 1) ---
+    // If a line is being dragged, draw its temporary position.
+    const preview = State.get("draggingPreview");
+    if (preview && preview.line) {
+      const { start, end } = preview.line;
+      ctx.save();
+      ctx.globalAlpha = 0.6; // Make it slightly transparent
+      ctx.strokeStyle = "yellow";
+      ctx.lineWidth = Math.max(
+        1,
+        Math.min(1000, Math.round(preview.line.height ?? 4)),
+      );
       ctx.beginPath();
-      ctx.moveTo(preview.start.x, preview.start.y);
-      ctx.lineTo(preview.end.x, preview.end.y);
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
       ctx.stroke();
-      ctx.restore(); // ✅ revert to previous canvas state
+      ctx.restore();
     }
 
+    // Draw preview for a new line being created
+    const currentLine = State.get("currentLine");
+    if (currentLine) {
+      ctx.save();
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(currentLine.start.x, currentLine.start.y);
+      ctx.lineTo(currentLine.end.x, currentLine.end.y);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Draw shared spawn circle
     const spawnCircle = State.get("spawnCircle");
     if (spawnCircle) {
       const { x, y, diameter } = spawnCircle;
       ctx.beginPath();
-      ctx.arc(x, y, diameter / 2 - 1, 0, 2 * Math.PI);
+      ctx.arc(x, y, diameter / 2, 0, 2 * Math.PI);
       ctx.strokeStyle = "deepskyblue";
       ctx.lineWidth = 2;
       ctx.stroke();
-
-      // Label below circle
       ctx.fillStyle = "deepskyblue";
       ctx.font = "9px Lexend";
       ctx.textAlign = "center";
-      ctx.fillText("spawn", x, y + diameter / 2 + 8);
+      ctx.fillText("spawn", x, y + diameter / 2 + 12);
     }
 
+    // Draw capture zone
     const capZone = State.get("capZone");
-    if (capZone && capZone.x !== null && capZone.y !== null) {
-      const { x: czX, y: czY, width: czW, height: czH } = capZone;
+    if (capZone && capZone.x !== null) {
+      const { x, y, width, height } = capZone;
       ctx.strokeStyle = "yellow";
+      ctx.strokeRect(x, y, width, height);
       ctx.fillStyle = "yellow";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(czX, czY, czW, czH);
-      ctx.fillText("CZ", czX + czW / 2, czY + czH / 2 + 3);
+      ctx.fillText("CZ", x + width / 2, y + height / 2 + 5);
     }
   }
 }

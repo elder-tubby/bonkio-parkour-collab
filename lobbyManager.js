@@ -16,25 +16,18 @@ class LobbyManager {
   }
 
   addPlayer(socketId, name) {
-    // Prevent joining if a case-insensitive duplicate name exists
     const lowerName = name.trim().toLowerCase();
     const isDuplicateName = Object.values(this.players).some(
       (p) => p.name.trim().toLowerCase() === lowerName,
     );
+    if (isDuplicateName) return { error: "duplicateName" };
 
-    if (isDuplicateName) {
-      return { error: "duplicateName" };
-    }
-
-    // Assign a unique symbol
     const usedSymbols = new Set(
       Object.values(this.players).map((p) => p.symbol),
     );
     const availableSymbols = PLAYER_SYMBOLS.filter((s) => !usedSymbols.has(s));
     const symbol =
-      availableSymbols.length > 0
-        ? availableSymbols[0] // Predictably take the first available
-        : PLAYER_SYMBOLS[Math.floor(Math.random() * PLAYER_SYMBOLS.length)]; // Fallback for overflow
+      availableSymbols.length > 0 ? availableSymbols[0] : PLAYER_SYMBOLS[0];
 
     this.players[socketId] = {
       id: socketId,
@@ -61,20 +54,18 @@ class LobbyManager {
     }
   }
 
-  readyCount() {
-    return Object.values(this.players).filter((p) => p.ready).length;
+  getReadyPlayers() {
+    return Object.values(this.players).filter((p) => p.ready && !p.inGame);
   }
 
   /**
+   * --- FIX for Game Start Logic (Problem 5) ---
    * Checks if the conditions are met to start a game.
-   * Requires at least two players, and all of them must be ready.
+   * Requires at least two players to be ready.
    */
-  areAllPlayersReady() {
-    const playerCount = Object.keys(this.players).length;
-    if (playerCount < 2) {
-      return false;
-    }
-    return Object.values(this.players).every((p) => p.ready);
+  canGameStart() {
+    const readyPlayers = this.getReadyPlayers();
+    return readyPlayers.length >= 2;
   }
 
   resetReady() {

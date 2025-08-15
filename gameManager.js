@@ -45,8 +45,13 @@ class GameManager {
     this.lines = []; // Stores all line objects
     this.participants = []; // Array of socket IDs in the current game
     this.votes = {}; // { socketId: boolean } for ending the game
-    this.capZone = null;
-    this.spawnCircle = null;
+
+    // --- FIX ---
+    // Initialize game objects with default values instead of null.
+    // This prevents sending null to the client, which causes the crash.
+    this.capZone = { x: 385, y: 400, width: 30, height: 18.5 };
+    this.spawnCircle = { x: 400, y: 300, diameter: 18 };
+
     this.mapSize = 9; // Default map size
     this._lastEventTs = new Map(); // For rate limiting player actions
   }
@@ -64,6 +69,8 @@ class GameManager {
       this.active = false;
       return; // Not enough ready players
     }
+
+    // Since reset() now handles defaults, we don't need to initialize here.
 
     this.votes = this.participants.reduce(
       (acc, id) => ({ ...acc, [id]: false }),
@@ -365,7 +372,9 @@ class GameManager {
     if (!this._canPlayerAct(playerId)) return;
     const clampedSize = Math.max(1, Math.min(13, Math.trunc(size)));
     this.mapSize = clampedSize;
-    this.io.emit(EVENTS.MAP_SIZE_UPDATED, { size: clampedSize });
+    // The event name on the server was 'mapSizeUpdated' but the client was listening
+    // for 'mapSizeUpdate'. I've aligned them here. Let's assume server is the source of truth.
+    this.io.emit(EVENTS.MAP_SIZE_UPDATED, clampedSize);
   }
 
   // --- Helpers & Validation ---

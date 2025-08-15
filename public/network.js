@@ -24,20 +24,25 @@ export function voteFinish(vote) {
 }
 
 export function sendChat(message) {
-  socket.emit("chatMessage", message);
+  // NOTE: The server listens for "sendChat", but the original file emitted "chatMessage".
+  // This has been corrected to align with the server (`index.js`).
+  socket.emit("sendChat", message);
 }
 
 // Line and Map Object Manipulation
-export function drawLine(lineData) {
-  socket.emit("drawLine", lineData);
+
+// FIX: Renamed from drawLine and corrected event name to match server
+export function createLine(lineData) {
+  socket.emit("createLine", lineData);
 }
 
 export function deleteLine(lineId) {
   socket.emit("deleteLine", lineId);
 }
 
-export function reorderLine(payload) {
-  socket.emit("reorderLine", payload);
+// FIX: Renamed from reorderLine and corrected event name to match server
+export function reorderLines(payload) {
+  socket.emit("reorderLines", payload);
 }
 
 /**
@@ -46,28 +51,33 @@ export function reorderLine(payload) {
  * start, end, width, height, angle, type,
  * widthDelta, heightDelta, angleDelta, nudge {x, y}
  */
-export function emitLineUpdate(payload) {
+// FIX: Renamed from emitLineUpdate for consistency
+export function updateLine(payload) {
   socket.emit("updateLine", payload);
 }
 
-export function emitSpawnCircleUpdate(data) {
-  socket.emit("updateSpawnCircle", data);
+// FIX: Renamed from emitSpawnCircleUpdate and corrected event name
+export function setSpawnCircle(data) {
+  socket.emit("setSpawnCircle", data);
 }
 
-export function emitCapZoneUpdate(data) {
-  socket.emit("updateCapZone", data);
+// FIX: Renamed from emitCapZoneUpdate and corrected event name
+export function setCapZone(data) {
+  socket.emit("setCapZone", data);
 }
 
-export function emitSpawnSizeChange(size) {
-  socket.emit("updateMapSize", size);
+// FIX: Renamed from emitSpawnSizeChange and corrected event name
+export function setMapSize(size) {
+  socket.emit("setMapSize", size);
 }
 
 // ---- LISTENERS (Server -> Client) ----
 
 // Connection
-export function onConnect(cb) {
-  socket.on("connect", () => cb(socket.id));
+export function onConnectWithId(cb) {
+  socket.on("connectWithId", cb);
 }
+
 export function onLobbyFull(cb) {
   socket.on("lobbyFull", cb);
 }
@@ -93,7 +103,7 @@ export function onEndGame(cb) {
 }
 export function onGameUpdate(cb) {
   socket.on("gameUpdate", cb);
-} // Added to handle vote/player list updates
+}
 
 // Authoritative State Updates
 export function onLineCreated(cb) {

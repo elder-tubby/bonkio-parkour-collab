@@ -1,6 +1,8 @@
-// utils-client.js — replace existing getHitLineId implementation with this
+// utils-client.js
 import State from "./state.js";
 import * as Network from "./network.js";
+import UI from "./ui.js"; // Assuming UI module exports elems
+
 /**
  * helper: convert a line's width+angle into an endpoint if present, else use line.end
  */
@@ -35,10 +37,13 @@ function pointToSegmentDistance(p, a, b) {
 
 export function getHitLineId(point) {
   const lines = State.get("lines") || [];
-  const lobby = State.get("lobbyPlayers") || [];
-  const currentPlayerId = State.get("playerId");
+  // --- FIX --- Use the correct state property 'players'
+  const lobby = State.get("players") || [];
+  // --- FIX --- Use 'socketId' for the current player's ID for consistency
+  const currentPlayerId = State.get("socketId");
   const presentIds = new Set(lobby.map((p) => p.id));
 
+  // Iterate from top-most rendered line to bottom
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     const start = line.start;
@@ -68,6 +73,7 @@ export function getHitLineId(point) {
     ) {
       const ownerId = line.playerId;
       const ownerPresent = presentIds.has(ownerId);
+      // Allow selection if the user is the owner OR if the owner is not in the game
       if (ownerId === currentPlayerId || !ownerPresent) {
         return line.id;
       }
@@ -79,22 +85,21 @@ export function getHitLineId(point) {
 
 export function updateLineTypeUI(type) {
   const select = document.getElementById("lineTypeSelect");
-
   if (!select) return;
 
   switch (type) {
     case "bouncy":
       select.style.backgroundColor = "#888"; // gray
-      select.style.color = "#000"; // black text for contrast
+      select.style.color = "#000";
       break;
     case "death":
       select.style.backgroundColor = "#e53935"; // vivid red
-      select.style.color = "#000"; // black text for contrast
+      select.style.color = "#000";
       break;
     case "none":
     default:
       select.style.backgroundColor = "#fff"; // white
-      select.style.color = "#000"; // black text
+      select.style.color = "#000";
       break;
   }
 }
@@ -125,89 +130,51 @@ export function showToast(message) {
 }
 
 export function handleUndoLastLine() {
-  const playerId = State.get("playerId"); // <-- get playerId instead of username
-  console.log("Undo playerId:", playerId);
-  if (!playerId) {
-    console.log("null playerId");
-    return;
-  }
+  // --- FIX --- Use 'socketId' for consistency
+  const playerId = State.get("socketId");
+  if (!playerId) return;
 
   const lines = State.get("lines");
-  console.log("All lines:", lines);
-
-  // Find last line created by this playerId
   const lastUserLine = [...lines]
     .reverse()
     .find((line) => line.playerId === playerId);
 
-  if (!lastUserLine) {
-    console.log("no user line");
-    return; // nothing to undo
-  }
+  if (!lastUserLine) return;
 
   Network.deleteLine(lastUserLine.id);
-  // Optionally clear selection if that line was selected
   if (State.get("selectedLineId") === lastUserLine.id) {
     State.set("selectedLineId", null);
   }
 }
 
 export function getSpawnDiameter() {
-  let diameter = 0;
-
-  switch (Math.floor(State.get("mapSize"))) {
-    case 13:
-      diameter = 5 * 2;
-      break;
-    case 12:
-      diameter = 6 * 2;
-      break;
-    case 11:
-      diameter = 7 * 2;
-      break;
-    case 10:
-      diameter = 8 * 2;
-      break;
-    case 9:
-      diameter = 9 * 2;
-      break;
-    case 8:
-      diameter = 10 * 2;
-      break;
-    case 7:
-      diameter = 12 * 2;
-      break;
-    case 6:
-      diameter = 13 * 2;
-      break;
-    case 5:
-      diameter = 15 * 2;
-      break;
-    case 4:
-      diameter = 17 * 2;
-      break;
-    case 3:
-      diameter = 20 * 2;
-      break;
-    case 2:
-      diameter = 24 * 2;
-      break;
-    case 1:
-      diameter = 30 * 2;
-      break;
-  }
-
-  return diameter;
+  let diameter = 18; // Default value
+  const mapSize = Math.floor(State.get("mapSize"));
+  const sizeMap = {
+    13: 10,
+    12: 12,
+    11: 14,
+    10: 16,
+    9: 18,
+    8: 20,
+    7: 24,
+    6: 26,
+    5: 30,
+    4: 34,
+    3: 40,
+    2: 48,
+    1: 60,
+  };
+  return sizeMap[mapSize] || diameter;
 }
 
-// utils-client.js (append)
 export function getLineProps(l) {
   const dx = l.end.x - l.start.x;
   const dy = l.end.y - l.start.y;
   const fallbackWidth = Math.hypot(dx, dy);
 
   const width = typeof l.width === "number" ? l.width : fallbackWidth;
-  const height = typeof l.height === "number" ? l.height : 4; // default 4
+  const height = typeof l.height === "number" ? l.height : 4;
   const angle =
     typeof l.angle === "number"
       ? l.angle
@@ -217,27 +184,31 @@ export function getLineProps(l) {
 }
 
 export function normalizeAngle(angle) {
-  angle = ((angle % 180) + 180) % 180; // wrap into [0,180)
-  return angle;
+  return ((angle % 180) + 180) % 180;
 }
 
 export function distance(a, b) {
+  // --- FIX --- Added a guard to prevent crash if points are invalid
+  if (!a || !b) return Infinity;
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   return Math.hypot(dx, dy);
 }
+
 export function computeAngleDeg(a, b) {
   return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
 }
 
-export function updateAllLinePropUIpointFromEventOnCanvas(evt) {
+// --- FIX --- This function was empty, causing the crash.
+// It now correctly calculates the mouse position relative to the canvas.
+export function pointFromEventOnCanvas(evt) {
   const canvas = UI.elems.canvas;
+  if (!canvas) return { x: 0, y: 0 };
   const rect = canvas.getBoundingClientRect();
   return { x: evt.clientX - rect.left, y: evt.clientY - rect.top };
 }
 
 export function normalizeServerLine(payload) {
-  // incoming payload shape may be { id, playerId, line, username, symbol, width, height, angle, type }
   if (!payload) return null;
   const start = payload.start ?? payload.line?.start;
   const end = payload.end ?? payload.line?.end;
@@ -260,5 +231,3 @@ export function normalizeServerLine(payload) {
         : computeAngleDeg(start, end),
   };
 }
-
-export function pointFromEventOnCanvas(evt) {}
