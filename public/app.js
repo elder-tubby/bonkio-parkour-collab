@@ -6,19 +6,7 @@ import State from "./state.js";
 import Canvas from "./canvas.js";
 import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
-import { showToast } from "./utils-client.js";
-
-// In a real app, this would be in a shared module.
-function getSpawnDiameter(mapSize) {
-  const minSize = 1;
-  const maxSize = 13;
-  const minDiameter = 8;
-  const maxDiameter = 32;
-  if (mapSize <= minSize) return minDiameter;
-  if (mapSize >= maxSize) return maxDiameter;
-  const percentage = (mapSize - minSize) / (maxSize - minSize);
-  return minDiameter + (maxDiameter - minDiameter) * percentage;
-}
+import { showToast, getSpawnDiameter } from "./utils-client.js";
 
 function main() {
   UI.init();

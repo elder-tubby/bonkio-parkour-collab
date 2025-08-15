@@ -3,17 +3,7 @@
  */
 const { v4: uuidv4 } = require("uuid");
 const { EVENTS } = require("./config");
-
-function getSpawnDiameter(mapSize) {
-  const minSize = 1;
-  const maxSize = 13;
-  const minDiameter = 8;
-  const maxDiameter = 32;
-  if (mapSize <= minSize) return minDiameter;
-  if (mapSize >= maxSize) return maxDiameter;
-  const percentage = (mapSize - minSize) / (maxSize - minSize);
-  return minDiameter + (maxDiameter - minDiameter) * percentage;
-}
+const { getSpawnDiameter } = require("./utils"); // ✅ Import from utils.js
 
 class GameManager {
   constructor(io, lobby) {
@@ -395,8 +385,7 @@ class GameManager {
       newLines.push({
         ...line, // Carry over properties like type, w/h/a, etc.
         id: uuidv4(), // Assign a new, server-authoritative ID
-        playerId: playerId,
-        username: player.name,
+        
         symbol: " ",
       });
     }

@@ -1,5 +1,5 @@
 import State from "./state.js";
-import { showToast } from "./utils-client.js";
+import { getSpawnDiameter, showToast } from "./utils-client.js";
 import UI from "./ui.js";
 import * as Network from "./network.js";
 
@@ -28,7 +28,7 @@ export function copyLineInfo(lines) {
   // Fixed background and cap‑zone entries
   const bgLine = {
     id: 0,
-    color: 1381653,
+    color: 921102,
     x: 935,
     y: 350,
     width: 1000,
@@ -159,7 +159,7 @@ export function copyLineInfo(lines) {
 
   navigator.clipboard
     .writeText(JSON.stringify(out, null, 2))
-    .then(() => showToast("Copied!"))
+    .then(() => showToast("Map data copied!"))
     .catch((e) => showToast("Copy failed: " + e));
 }
 
@@ -254,18 +254,7 @@ export async function pasteLines() {
   const COLOR_DEATH = 12713984;
   const COLOR_DEFAULT = 16777215;
 
-  // Helper: compute spawn diameter (mirror of app.js getSpawnDiameter)
-  function computeSpawnDiameter(mapSize) {
-    const minSize = 1;
-    const maxSize = 13;
-    const minDiameter = 8;
-    const maxDiameter = 32;
-    if (typeof mapSize !== "number" || !isFinite(mapSize)) return 18;
-    if (mapSize <= minSize) return minDiameter;
-    if (mapSize >= maxSize) return maxDiameter;
-    const percentage = (mapSize - minSize) / (maxSize - minSize);
-    return minDiameter + (maxDiameter - minDiameter) * percentage;
-  }
+ 
 
   const imported = [];
   let indexCounter = 1; // id counter for new internal lines
@@ -444,9 +433,6 @@ export async function pasteLines() {
       spawnGame = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
     }
   }
-
-  // Compute spawn diameter from mapSize
-  const diameter = computeSpawnDiameter(mapSizeFromFile);
 
   // Update state: lines and spawnCircle (and mapSize already set)
   const payload = {

@@ -147,9 +147,8 @@ export function handleUndoLastLine() {
   }
 }
 
-export function getSpawnDiameter() {
+export function getSpawnDiameter(mapSize) {
   let diameter = 18; // Default value
-  const mapSize = Math.floor(State.get("mapSize"));
   const sizeMap = {
     13: 10,
     12: 12,
