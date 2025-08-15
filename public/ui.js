@@ -53,7 +53,6 @@ class UI {
     this.CONTROL_ELEMENT_WIDTH = "80px";
 
     this.LINE_CONTROLS = [
-      "pasteMapBtn",
       "deleteLineBtn",
       "lineTypeSelect",
       "orderLabel",
@@ -185,7 +184,7 @@ class UI {
     // Paste button
     const pasteBtn = document.createElement("button");
     pasteBtn.id = "pasteMapBtn";
-    pasteBtn.disabled = true; // disabled by default; app logic may enable
+    // pasteBtn.disabled = true; // disabled by default; app logic may enable
     pasteBtn.textContent = "Paste Map";
     pasteBtn.title = "Paste map from clipboard";
     pasteBtn.setAttribute("aria-label", "Paste Map");

@@ -3,16 +3,13 @@
  * Tracks everyone in the lobby, their "ready" state, and assigns unique symbols.
  */
 
-const { PLAYER_SYMBOLS } = require("./config");
-
-const EVENTS = {
-  LOBBY_UPDATE: "lobbyUpdate",
-};
+const { PLAYER_SYMBOLS, EVENTS } = require("./config");
 
 class LobbyManager {
-  constructor(io) {
+  constructor(io, getGameActive = () => false) {
     this.io = io;
-    this.players = {}; // socketId → { id, name, ready, symbol, inGame }
+    this.players = {};
+    this.getGameActive = getGameActive;
   }
 
   addPlayer(socketId, name) {
@@ -37,7 +34,7 @@ class LobbyManager {
       inGame: false,
     };
 
-    this.broadcastLobby();
+    // Don't broadcast here; let the caller decide when to broadcast.
     return { success: true };
   }
 
@@ -58,11 +55,6 @@ class LobbyManager {
     return Object.values(this.players).filter((p) => p.ready && !p.inGame);
   }
 
-  /**
-   * --- FIX for Game Start Logic (Problem 5) ---
-   * Checks if the conditions are met to start a game.
-   * Requires at least two players to be ready.
-   */
   canGameStart() {
     const readyPlayers = this.getReadyPlayers();
     return readyPlayers.length >= 2;
@@ -87,7 +79,16 @@ class LobbyManager {
   }
 
   broadcastLobby() {
-    this.io.emit(EVENTS.LOBBY_UPDATE, this.getLobbyPayload());
+    // Also include game status in the lobby update.
+    const payload = this.getLobbyPayload();
+    // This is a bit of a hack; ideally game state isn't managed here.
+    // We'll add a property to the payload.
+    // A better solution would be for the gameManager to broadcast its own status.
+    // For now, this will work for the client.
+    this.io.emit(EVENTS.LOBBY_UPDATE, {
+      ...payload,
+      gameActive: !!this.getGameActive(),
+    });
   }
 }
 

@@ -6,7 +6,19 @@ import State from "./state.js";
 import Canvas from "./canvas.js";
 import * as Network from "./network.js";
 import { bindUIEvents } from "./handlers.js";
-import { getSpawnDiameter } from "./utils-client.js";
+import { showToast } from "./utils-client.js";
+
+// In a real app, this would be in a shared module.
+function getSpawnDiameter(mapSize) {
+  const minSize = 1;
+  const maxSize = 13;
+  const minDiameter = 8;
+  const maxDiameter = 32;
+  if (mapSize <= minSize) return minDiameter;
+  if (mapSize >= maxSize) return maxDiameter;
+  const percentage = (mapSize - minSize) / (maxSize - minSize);
+  return minDiameter + (maxDiameter - minDiameter) * percentage;
+}
 
 function main() {
   UI.init();
@@ -20,47 +32,82 @@ function bindNetworkEvents() {
   // Connection & Lobby
   Network.onConnectWithId((id) => State.set("socketId", id));
 
-  Network.onLobbyUpdate(({ players }) => {
+  Network.onLobbyUpdate(({ players, gameActive }) => {
     State.set("players", players || []);
     UI.updateLobby(players || []);
+
+    // FIX 13: Enable ready checkbox only after the user has successfully joined the lobby.
+    const me = (players || []).find((p) => p.id === State.get("socketId"));
+    if (UI.elems.readyCheckbox) {
+      UI.elems.readyCheckbox.disabled = !me;
+    }
+
+    // Derive whether a game is active:
+    // Prefer explicit server flag, but if missing rely on per-player inGame flags.
+    const anyInGame = players.some((p) => !!p.inGame);
+    const isGameActive =
+      typeof gameActive === "boolean" ? gameActive : anyInGame;
+
+    // Persist gameActive in client state so other code can rely on it
+    State.set("gameActive", !!isGameActive);
+
+    // FIX 14b: Update game status display for users who haven't joined yet.
+    if (gameActive) {
+      // UI.setStatus("Draw by dragging on canvas");
+      UI.showLobbyMessage("Game in progress. Set 'Ready' to join.");
+    } else {
+      const readyCount = (players || []).filter((p) => p.ready).length;
+    }
   });
+
   Network.onGameInProgress(() =>
     UI.showLobbyMessage("Game in progress. Set 'Ready' to join."),
   );
 
   // Game Flow
+  // We still listen for start/snapshot, but the initializer verifies whether this client
+  // is actually a participant before switching to the canvas view.
   Network.onStartGame(initializeGameView);
   Network.onGameSnapshot(initializeGameView);
+
   Network.onGameUpdate(({ players, votes, totalParticipants }) => {
     UI.updatePlayers(players || []);
     UI.setVote(votes ?? 0, totalParticipants ?? 0);
   });
 
-  // FIX: Reworked the game end logic to correctly transition UI states.
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
-    // 1. Hide the game canvas.
+    if (UI.elems && UI.elems.readyCheckbox) {
+      UI.elems.readyCheckbox.checked = false;
+    }
     UI.hide("canvasWrap");
-    // 2. Show the home screen.
     UI.show("home");
-    // 3. Set the reason in the popup.
     UI.setEndReason(
       reason === "voted" ? "All players voted to end." : "A player left.",
     );
-    // 4. Show the popup as an overlay on top of the home screen.
     UI.show("gameEndPopup");
+    UI.showLobbyMessage("Drawing will start when 2 players are ready.");
   });
 
   // Authoritative State Changes
   Network.onLineCreated((newLine) => {
     State.set("lines", [...State.get("lines"), newLine]);
+    // Auto-select the newly-created line FOR THE CREATOR ONLY
+    if (newLine.playerId === State.get("socketId")) {
+      State.set("selectedLineId", newLine.id);
+    }
   });
+
   Network.onLineUpdated((updatedLine) => {
     const lines = State.get("lines").map((l) =>
       l.id === updatedLine.id ? updatedLine : l,
     );
     State.set("lines", lines);
+    if (State.get("selectedLineId") === updatedLine.id) {
+      UI.updateLineEditorValues(updatedLine);
+    }
   });
+
   Network.onLineDeleted(({ id }) => {
     State.set(
       "lines",
@@ -70,9 +117,11 @@ function bindNetworkEvents() {
       State.set("selectedLineId", null);
     }
   });
+
   Network.onLinesReordered((reorderedLines) => {
     State.set("lines", reorderedLines || []);
   });
+
   Network.onSpawnCircleUpdate((spawnCircle) =>
     State.set("spawnCircle", spawnCircle),
   );
@@ -81,6 +130,8 @@ function bindNetworkEvents() {
 
   // Chat
   Network.onChatMessage((msg) => UI.appendChat(msg));
+  Network.onChatError((errorMsg) => showToast(errorMsg));
+  Network.onClearChat(() => UI.clearChat());
 }
 
 function watchStateChanges() {
@@ -120,7 +171,7 @@ function watchStateChanges() {
         if (UI.elems.spawnSizeValue)
           UI.elems.spawnSizeValue.innerText = String(value);
 
-        const newDiameter = getSpawnDiameter();
+        const newDiameter = getSpawnDiameter(value);
         const spawn = State.get("spawnCircle");
         if (spawn) {
           State.set("spawnCircle", { ...spawn, diameter: newDiameter });
@@ -130,7 +181,62 @@ function watchStateChanges() {
   });
 }
 
+/**
+ * initializeGameView
+ * - Only actually switches to game canvas if this client is included in payload.players.
+ * - If payload.players exists and the current client is NOT listed, show the lobby
+ *   (with "Game in progress" status) so the late user can join via Ready.
+ */
 function initializeGameView(payload = {}) {
+  // If `players` is present (start payload includes the list), check if this client is included.
+  const playersList = Array.isArray(payload.players) ? payload.players : null;
+  const myId = State.get("socketId");
+
+  if (playersList) {
+    const amParticipant = playersList.some((p) => p.id === myId);
+    if (!amParticipant) {
+      // Late joiner or someone not in the active participant list:
+      // update lobby display and set status, but DO NOT switch to canvas.
+      if (payload.lobbyPayload) {
+        State.set("players", payload.lobbyPayload.players || []);
+        UI.updateLobby(payload.lobbyPayload.players || []);
+      } else {
+        State.set("players", playersList || []);
+        UI.updateLobby(playersList || []);
+      }
+
+      // Mark game active so UI shows correct status, but keep user in lobby/home.
+      State.set("gameActive", true);
+      UI.setStatus("Draw by dragging on canvas.");
+      UI.hide("canvasWrap");
+      UI.show("home");
+
+      // If server sent votesCount / totalParticipants for display, show them.
+      if (payload.votesCount !== undefined) {
+        UI.setVote(payload.votesCount, payload.totalParticipants || 0);
+      }
+      return; // bail — do not initialize game view for non-participants
+    }
+  }
+
+  // If we reach here, either players list wasn't provided (fallback) or this client is a participant.
+  UI.clearChat(); // FIX 8: Clear chat history when a new game starts or when joining one.
+
+  // ===== FIX: Reset hide-names & vote UI state at game start =====
+  // Ensure names are visible by default and any vote checkbox is unchecked.
+  State.set("hideUsernames", false);
+  if (UI.elems) {
+    if (UI.elems.hideUsernamesCheckbox)
+      UI.elems.hideUsernamesCheckbox.checked = false;
+    if (UI.elems.voteCheckbox) UI.elems.voteCheckbox.checked = false;
+  }
+  // Reset displayed vote counts to zero (server may override below if it sent values).
+  UI.setVote(
+    0,
+    payload.totalParticipants ?? (payload.players || []).length ?? 0,
+  );
+  //
+
   State.set("gameActive", true);
   State.set("lines", payload.lines || []);
   State.set("players", payload.players || []);
@@ -145,8 +251,6 @@ function initializeGameView(payload = {}) {
     UI.setVote(payload.votesCount, payload.totalParticipants);
   }
 
-  // FIX: This is the core fix for the "disappearing canvas" bug.
-  // The home screen must be hidden before the canvas is shown.
   UI.hide("home");
   UI.show("canvasWrap");
   UI.updatePlayers(payload.players || []);

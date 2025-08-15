@@ -128,7 +128,7 @@ class Canvas {
       ctx.strokeStyle = "yellow";
       ctx.strokeRect(x, y, width, height);
       ctx.fillStyle = "yellow";
-      ctx.fillText("CZ", x + width / 2, y + height / 2 + 5);
+      ctx.fillText("CZ", x + width / 2, y + height / 2 + 3);
     }
   }
 }

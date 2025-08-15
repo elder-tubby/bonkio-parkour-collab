@@ -1,144 +1,133 @@
-/**
- * network.js - Client-Side Network Interface
- *
- * This file abstracts all communication with the server's Socket.IO endpoint.
- * It provides a clean, consistent API for both emitting events to the server
- * and subscribing to events received from the server.
- */
+import { EVENTS } from "./events.js";
 
-// Assuming socket.io client is loaded globally, e.g., via a <script> tag.
 const socket = window.io();
 
 // ---- EMITTERS (Client -> Server) ----
 
 export function joinLobby(name) {
-  socket.emit("joinLobby", name);
+  socket.emit(EVENTS.JOIN_LOBBY, name);
 }
 
 export function setReady(isReady) {
-  socket.emit("setReady", isReady);
+  socket.emit(EVENTS.SET_READY, isReady);
 }
 
 export function voteFinish(vote) {
-  socket.emit("voteFinish", vote);
+  socket.emit(EVENTS.VOTE_FINISH, vote);
 }
 
 export function sendChat(message) {
-  // NOTE: The server listens for "sendChat", but the original file emitted "chatMessage".
-  // This has been corrected to align with the server (`index.js`).
-  socket.emit("sendChat", message);
+  socket.emit(EVENTS.SEND_CHAT, message);
 }
 
-// Line and Map Object Manipulation
-
-// FIX: Renamed from drawLine and corrected event name to match server
 export function createLine(lineData) {
-  socket.emit("createLine", lineData);
+  socket.emit(EVENTS.CREATE_LINE, lineData);
+}
+
+export function pasteLines(pasteData) {
+  socket.emit(EVENTS.PASTE_LINES, pasteData);
 }
 
 export function deleteLine(lineId) {
-  socket.emit("deleteLine", lineId);
+  socket.emit(EVENTS.DELETE_LINE, lineId);
 }
 
-// FIX: Renamed from reorderLine and corrected event name to match server
 export function reorderLines(payload) {
-  socket.emit("reorderLines", payload);
+  socket.emit(EVENTS.REORDER_LINES, payload);
 }
 
-/**
- * Unified emitter for all types of line updates.
- * @param {object} payload - Must include `id` and any of:
- * start, end, width, height, angle, type,
- * widthDelta, heightDelta, angleDelta, nudge {x, y}
- */
-// FIX: Renamed from emitLineUpdate for consistency
 export function updateLine(payload) {
-  socket.emit("updateLine", payload);
+  socket.emit(EVENTS.UPDATE_LINE, payload);
 }
 
-// FIX: Renamed from emitSpawnCircleUpdate and corrected event name
 export function setSpawnCircle(data) {
-  socket.emit("setSpawnCircle", data);
+  socket.emit(EVENTS.SET_SPAWN_CIRCLE, data);
 }
 
-// FIX: Renamed from emitCapZoneUpdate and corrected event name
 export function setCapZone(data) {
-  socket.emit("setCapZone", data);
+  socket.emit(EVENTS.SET_CAP_ZONE, data);
 }
 
-// FIX: Renamed from emitSpawnSizeChange and corrected event name
 export function setMapSize(size) {
-  socket.emit("setMapSize", size);
+  socket.emit(EVENTS.SET_MAP_SIZE, size);
 }
 
 // ---- LISTENERS (Server -> Client) ----
 
-// Connection
 export function onConnectWithId(cb) {
-  socket.on("connectWithId", cb);
+  socket.on(EVENTS.CONNECT_WITH_ID, cb);
 }
 
 export function onLobbyFull(cb) {
-  socket.on("lobbyFull", cb);
+  socket.on(EVENTS.LOBBY_FULL, cb);
 }
+
 export function onLobbyNameTaken(cb) {
-  socket.on("lobbyNameTaken", cb);
+  socket.on(EVENTS.LOBBY_NAME_TAKEN, cb);
 }
+
 export function onGameInProgress(cb) {
-  socket.on("gameInProgress", cb);
+  socket.on(EVENTS.GAME_IN_PROGRESS, cb);
 }
 
-// Lobby and Game Flow
 export function onLobbyUpdate(cb) {
-  socket.on("lobbyUpdate", cb);
-}
-export function onStartGame(cb) {
-  socket.on("startGame", cb);
-}
-export function onGameSnapshot(cb) {
-  socket.on("gameSnapshot", cb);
-}
-export function onEndGame(cb) {
-  socket.on("endGame", cb);
-}
-export function onGameUpdate(cb) {
-  socket.on("gameUpdate", cb);
+  socket.on(EVENTS.LOBBY_UPDATE, cb);
 }
 
-// Authoritative State Updates
+export function onStartGame(cb) {
+  socket.on(EVENTS.START_GAME, cb);
+}
+
+export function onGameSnapshot(cb) {
+  socket.on(EVENTS.GAME_SNAPSHOT, cb);
+}
+
+export function onEndGame(cb) {
+  socket.on(EVENTS.END_GAME, cb);
+}
+
+export function onGameUpdate(cb) {
+  socket.on(EVENTS.GAME_UPDATE, cb);
+}
+
 export function onLineCreated(cb) {
-  socket.on("lineCreated", cb);
+  socket.on(EVENTS.LINE_CREATED, cb);
 }
+
 export function onLineUpdated(cb) {
-  socket.on("lineUpdated", cb);
+  socket.on(EVENTS.LINE_UPDATED, cb);
 }
+
 export function onLineDeleted(cb) {
-  socket.on("lineDeleted", cb);
+  socket.on(EVENTS.LINE_DELETED, cb);
 }
+
 export function onLinesReordered(cb) {
-  socket.on("linesReordered", cb);
+  socket.on(EVENTS.LINES_REORDERED, cb);
 }
 
 export function onSpawnCircleUpdate(cb) {
-  socket.on("spawnCircleUpdated", cb);
+  socket.on(EVENTS.SPAWN_CIRCLE_UPDATED, cb);
 }
+
 export function onCapZoneUpdate(cb) {
-  socket.on("capZoneUpdated", cb);
+  socket.on(EVENTS.CAP_ZONE_UPDATED, cb);
 }
+
 export function onMapSizeUpdate(cb) {
-  socket.on("mapSizeUpdated", cb);
+  socket.on(EVENTS.MAP_SIZE_UPDATED, cb);
 }
 
-// Chat
 export function onChatMessage(cb) {
-  socket.on("chatMessage", cb);
-}
-export function onChatError(cb) {
-  socket.on("chatError", cb);
-}
-export function onClearChat(cb) {
-  socket.on("clearChat", cb);
+  socket.on(EVENTS.CHAT_MESSAGE, cb);
 }
 
-// Utility: expose raw socket if needed for debugging or special cases
+export function onChatError(cb) {
+  socket.on(EVENTS.CHAT_ERROR, cb);
+}
+
+export function onClearChat(cb) {
+  socket.on(EVENTS.CLEAR_CHAT, cb);
+}
+
 export { socket };

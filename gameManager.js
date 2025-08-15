@@ -1,37 +1,19 @@
 /**
  * gameManager.js - Authoritative Server-Side Game State Manager
- *
- * This class manages the entire lifecycle and state of a game round. It is the
- * single source of truth for all game objects (lines, map settings, etc.).
- * It processes player actions, validates them, updates the state, and broadcasts
- * the authoritative results to all clients.
  */
-
 const { v4: uuidv4 } = require("uuid");
+const { EVENTS } = require("./config");
 
-// Standardized, camelCase event names for consistency across the stack.
-const EVENTS = {
-  // Game Flow
-  START_GAME: "startGame",
-  GAME_UPDATE: "gameUpdate",
-  END_GAME: "endGame",
-  GAME_SNAPSHOT: "gameSnapshot", // For late-joiners
-  GAME_IN_PROGRESS: "gameInProgress",
-
-  // Line Events (Server -> Client)
-  LINE_CREATED: "lineCreated",
-  LINE_UPDATED: "lineUpdated", // Unified event for all modifications
-  LINE_DELETED: "lineDeleted",
-  LINES_REORDERED: "linesReordered",
-
-  // Map Object Events (Server -> Client)
-  SPAWN_CIRCLE_UPDATED: "spawnCircleUpdated",
-  CAP_ZONE_UPDATED: "capZoneUpdated",
-  MAP_SIZE_UPDATED: "mapSizeUpdated",
-
-  // Chat
-  CLEAR_CHAT: "clearChat",
-};
+function getSpawnDiameter(mapSize) {
+  const minSize = 1;
+  const maxSize = 13;
+  const minDiameter = 8;
+  const maxDiameter = 32;
+  if (mapSize <= minSize) return minDiameter;
+  if (mapSize >= maxSize) return maxDiameter;
+  const percentage = (mapSize - minSize) / (maxSize - minSize);
+  return minDiameter + (maxDiameter - minDiameter) * percentage;
+}
 
 class GameManager {
   constructor(io, lobby) {
@@ -42,21 +24,18 @@ class GameManager {
 
   reset() {
     this.active = false;
-    this.lines = []; // Stores all line objects
-    this.participants = []; // Array of socket IDs in the current game
-    this.votes = {}; // { socketId: boolean } for ending the game
-
-    // --- FIX ---
-    // Initialize game objects with default values instead of null.
-    // This prevents sending null to the client, which causes the crash.
+    this.lines = [];
+    this.participants = [];
+    this.votes = {};
     this.capZone = { x: 385, y: 400, width: 30, height: 18.5 };
-    this.spawnCircle = { x: 400, y: 300, diameter: 18 };
-
-    this.mapSize = 9; // Default map size
-    this._lastEventTs = new Map(); // For rate limiting player actions
+    this.mapSize = 9;
+    this.spawnCircle = {
+      x: 400,
+      y: 300,
+      diameter: getSpawnDiameter(this.mapSize),
+    };
+    this._lastEventTs = new Map();
   }
-
-  // --- Game Lifecycle ---
 
   start() {
     this.active = true;
@@ -67,10 +46,8 @@ class GameManager {
 
     if (this.participants.length < 2) {
       this.active = false;
-      return; // Not enough ready players
+      return;
     }
-
-    // Since reset() now handles defaults, we don't need to initialize here.
 
     this.votes = this.participants.reduce(
       (acc, id) => ({ ...acc, [id]: false }),
@@ -80,10 +57,16 @@ class GameManager {
       if (this.lobby.players[id]) this.lobby.players[id].inGame = true;
     });
 
-    this.io.emit(EVENTS.CLEAR_CHAT);
+    // Tell clients to clear their chat
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.CLEAR_CHAT);
+    });
+
+    // Send start payload
     const payload = this.getStartPayload();
-    // Use `to` for targeted emission to participants
-    this.io.to(this.participants).emit(EVENTS.START_GAME, payload);
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.START_GAME, payload);
+    });
 
     this.broadcastGameState();
     this.lobby.broadcastLobby();
@@ -95,11 +78,9 @@ class GameManager {
       if (p) p.inGame = false;
     });
     this.lobby.resetReady();
-    this.reset(); // Reset game state after notifying players
+    this.reset();
     this.lobby.broadcastLobby();
   }
-
-  // --- Player Management ---
 
   addParticipant(playerId) {
     if (
@@ -114,7 +95,6 @@ class GameManager {
     if (this.lobby.players[playerId])
       this.lobby.players[playerId].inGame = true;
 
-    // Send the full game state to the new participant
     this.io
       .to(playerId)
       .emit(EVENTS.GAME_SNAPSHOT, this.getSnapshotFor(playerId));
@@ -144,23 +124,25 @@ class GameManager {
     const total = this.participants.length;
     const yesVotes = Object.values(this.votes).filter(Boolean).length;
 
-    if (total > 1 && yesVotes === total) {
+    if (total > 0 && yesVotes === total) {
       this.endGame("voted");
     } else {
       this.broadcastGameState();
     }
   }
 
-  // --- State Broadcasting ---
-
   broadcastGameState() {
     if (!this.active) return;
     const players = this.getGamePlayers();
     const votesCount = Object.values(this.votes).filter(Boolean).length;
-    this.io.emit(EVENTS.GAME_UPDATE, {
-      players,
-      votes: votesCount,
-      totalParticipants: this.participants.length,
+
+    // Send update to participants only
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.GAME_UPDATE, {
+        players,
+        votes: votesCount,
+        totalParticipants: this.participants.length,
+      });
     });
   }
 
@@ -207,7 +189,7 @@ class GameManager {
 
     const dx = lineData.end.x - lineData.start.x;
     const dy = lineData.end.y - lineData.start.y;
-    if (dx * dx + dy * dy < 25) return; // Min length check
+    if (dx * dx + dy * dy < 25) return;
 
     const player = this.lobby.players[playerId];
     const newLine = {
@@ -224,14 +206,21 @@ class GameManager {
     };
 
     this.lines.push(newLine);
-    this.io.emit(EVENTS.LINE_CREATED, newLine);
+
+    // Send to all participants
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.LINE_CREATED, newLine);
+    });
   }
 
   handleLineDeletion(playerId, lineId) {
     if (!this._canModifyLine(playerId, lineId)) return;
 
     this.lines = this.lines.filter((l) => l.id !== lineId);
-    this.io.emit(EVENTS.LINE_DELETED, { id: lineId });
+
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.LINE_DELETED, { id: lineId });
+    });
   }
 
   handleLineReorder(playerId, { id, toBack }) {
@@ -248,13 +237,11 @@ class GameManager {
       this.lines.push(line);
     }
 
-    this.io.emit(EVENTS.LINES_REORDERED, this.lines);
+    this.participants.forEach((pid) => {
+      this.io.to(pid).emit(EVENTS.LINES_REORDERED, this.lines);
+    });
   }
 
-  /**
-   * The single, unified handler for all line modifications.
-   * It processes a flexible payload and emits one 'lineUpdated' event.
-   */
   handleLineUpdate(playerId, payload) {
     if (
       !payload?.id ||
@@ -269,7 +256,6 @@ class GameManager {
     let currentLine = this.lines[lineIndex];
     let updatedLine = { ...currentLine };
 
-    // Determine if position is changing to recalculate center later
     const isMoving =
       (payload.nudge && (payload.nudge.x || payload.nudge.y)) ||
       (this._validPoint(payload.start) && this._validPoint(payload.end));
@@ -279,9 +265,8 @@ class GameManager {
       payload.widthDelta ||
       payload.angleDelta;
 
-    // 1. Apply nudges (modifies start/end)
     if (payload.nudge && (payload.nudge.x || payload.nudge.y)) {
-      const dx = (payload.nudge.x || 0) * 2; // Nudge amount
+      const dx = (payload.nudge.x || 0) * 2;
       const dy = (payload.nudge.y || 0) * 2;
       updatedLine.start = {
         x: updatedLine.start.x + dx,
@@ -293,13 +278,11 @@ class GameManager {
       };
     }
 
-    // 2. Apply absolute moves (overwrites start/end)
     if (this._validPoint(payload.start) && this._validPoint(payload.end)) {
       updatedLine.start = payload.start;
       updatedLine.end = payload.end;
     }
 
-    // 3. Apply deltas and absolute properties
     if (payload.widthDelta)
       updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
     if (payload.heightDelta)
@@ -312,14 +295,11 @@ class GameManager {
     if (typeof payload.angle === "number") updatedLine.angle = payload.angle;
     if (typeof payload.type === "string") updatedLine.type = payload.type;
 
-    // 4. Clamp and normalize values
     updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width || 0));
     updatedLine.height = Math.max(1, Math.min(1000, updatedLine.height || 0));
-    updatedLine.angle = ((updatedLine.angle || 0 % 360) + 360) % 360;
+    updatedLine.angle = (((updatedLine.angle || 0) % 360) + 360) % 360;
 
-    // 5. Recalculate derived properties
     if (isMoving && !isResizing) {
-      // Just moved, recalculate width/angle
       const dx = updatedLine.end.x - updatedLine.start.x;
       const dy = updatedLine.end.y - updatedLine.start.y;
       updatedLine.width = Math.hypot(dx, dy);
@@ -328,7 +308,6 @@ class GameManager {
         updatedLine.end,
       );
     } else if (isResizing) {
-      // Resized/rotated, recalculate start/end from center
       const center = {
         x: (currentLine.start.x + currentLine.end.x) / 2,
         y: (currentLine.start.y + currentLine.end.y) / 2,
@@ -341,9 +320,11 @@ class GameManager {
       updatedLine.end = { x: center.x + halfX, y: center.y + halfY };
     }
 
-    // 6. Commit the change and broadcast
     this.lines[lineIndex] = updatedLine;
-    this.io.emit(EVENTS.LINE_UPDATED, updatedLine);
+
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.LINE_UPDATED, updatedLine);
+    });
   }
 
   setSpawnCircle(playerId, { x, y }) {
@@ -354,7 +335,9 @@ class GameManager {
     )
       return;
     this.spawnCircle = { ...this.spawnCircle, x, y };
-    this.io.emit(EVENTS.SPAWN_CIRCLE_UPDATED, this.spawnCircle);
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.SPAWN_CIRCLE_UPDATED, this.spawnCircle);
+    });
   }
 
   setCapZone(playerId, { x, y }) {
@@ -365,20 +348,78 @@ class GameManager {
     )
       return;
     this.capZone = { ...this.capZone, x, y };
-    this.io.emit(EVENTS.CAP_ZONE_UPDATED, this.capZone);
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.CAP_ZONE_UPDATED, this.capZone);
+    });
   }
 
   setMapSize(playerId, size) {
     if (!this._canPlayerAct(playerId)) return;
     const clampedSize = Math.max(1, Math.min(13, Math.trunc(size)));
     this.mapSize = clampedSize;
-    // The event name on the server was 'mapSizeUpdated' but the client was listening
-    // for 'mapSizeUpdate'. I've aligned them here. Let's assume server is the source of truth.
-    this.io.emit(EVENTS.MAP_SIZE_UPDATED, clampedSize);
+    this.spawnCircle.diameter = getSpawnDiameter(this.mapSize);
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.MAP_SIZE_UPDATED, clampedSize);
+    });
+  }
+
+  handlePasteLines(playerId, pasteData) {
+    if (
+      !this._canPlayerAct(playerId) ||
+      !this._allow(playerId, "paste", 3000)
+    ) {
+      return;
+    }
+
+    // Authoritative check to prevent pasting over an existing map
+    if (this.lines.length > 0) {
+      this.io
+        .to(playerId)
+        .emit(EVENTS.CHAT_ERROR, "Cannot paste, lines already exist.");
+      return;
+    }
+
+    if (!pasteData || !Array.isArray(pasteData.lines)) return;
+
+    const player = this.lobby.players[playerId];
+    const newLines = [];
+    for (const line of pasteData.lines) {
+      // Basic validation of the line object from the client
+      if (
+        !line ||
+        !this._validPoint(line.start) ||
+        !this._validPoint(line.end)
+      ) {
+        continue;
+      }
+      newLines.push({
+        ...line, // Carry over properties like type, w/h/a, etc.
+        id: uuidv4(), // Assign a new, server-authoritative ID
+        playerId: playerId,
+        username: player.name,
+        symbol: " ",
+      });
+    }
+
+    if (newLines.length > 0) {
+      this.lines = newLines;
+
+      // Update map state from pasted data
+      if (pasteData.mapSize) {
+        this.setMapSize(playerId, pasteData.mapSize);
+      }
+      if (pasteData.spawn && this._validPoint(pasteData.spawn)) {
+        this.setSpawnCircle(playerId, pasteData.spawn);
+      }
+
+      // Use the existing reorder event to send the full new line set to all clients
+      this.participants.forEach((id) => {
+        this.io.to(id).emit(EVENTS.LINES_REORDERED, this.lines);
+      });
+    }
   }
 
   // --- Helpers & Validation ---
-
   _allow(playerId, actionKey, minMs = 50) {
     const key = `${playerId}:${actionKey}`;
     const now = Date.now();

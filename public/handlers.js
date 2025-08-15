@@ -1,41 +1,41 @@
 /**
  * handlers.js - UI Event Binders
- *
- * This file connects user interface events (clicks, mouse moves, key presses)
- * to the application's state and network logic. It uses a state-flag based
- * model for robust mouse handling and includes a full set of keyboard shortcuts.
  */
-
 import UI from "./ui.js";
 import State from "./state.js";
 import * as Network from "./network.js";
-import Canvas from "./canvas.js";
-import { copyLineInfo } from "./exportLines.js";
 import {
   getHitLineId,
   distance,
   pointFromEventOnCanvas,
-  getLineProps,
   handleUndoLastLine,
-  updateLineTypeUI,
-  normalizeAngle,
 } from "./utils-client.js";
+import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 
 // --- State Flags for Mouse Actions ---
 let isDraggingLine = false;
 let isDraggingSpawn = false;
 let isDraggingCapZone = false;
 let isDrawingLine = false;
+let mouseMovedSinceDown = false;
+
+// FIX 10: State for tracking held-down keys for smooth diagonal movement.
+const keysDown = new Set();
+let nudgeLoopId = null;
 
 // --- Canvas Event Handlers ---
 function handleCanvasDown(e) {
-  if (e.button !== 0) return; // Only handle left-clicks
+  // FIX 6: Ensure actions only start on the canvas element itself, not other UI.
+  if (e.button !== 0 || e.target !== UI.elems.canvas) return;
+
   const point = pointFromEventOnCanvas(e);
   State.set("mouse", point);
+  mouseMovedSinceDown = false;
 
   // Priority 1: Dragging map objects
   const spawn = State.get("spawnCircle");
-  if (spawn && distance(point, spawn) < spawn.diameter / 2) {
+  if (spawn && distance(point, spawn) < spawn.diameter / 2 + 5) {
+    // Added buffer
     isDraggingSpawn = true;
     return;
   }
@@ -57,10 +57,11 @@ function handleCanvasDown(e) {
     State.set("selectedLineId", hitLineId);
     isDraggingLine = true;
     const line = State.get("lines").find((l) => l.id === hitLineId);
+    // Set up a preview state for dragging to avoid modifying the source line directly
     State.set("draggingPreview", {
       mouseStart: point,
       originalLine: line,
-      line: line,
+      line: { ...line }, // Work on a copy
     });
     return;
   }
@@ -73,6 +74,10 @@ function handleCanvasDown(e) {
 
 function handleCanvasMove(e) {
   const point = pointFromEventOnCanvas(e);
+  const lastPoint = State.get("mouse");
+  if (point.x !== lastPoint.x || point.y !== lastPoint.y) {
+    mouseMovedSinceDown = true;
+  }
   State.set("mouse", point);
 
   if (isDraggingSpawn) {
@@ -117,17 +122,28 @@ function handleCanvasMove(e) {
 }
 
 function handleCanvasUp(e) {
+  let actionTaken = false;
+
   if (isDraggingSpawn) {
+    actionTaken = true;
     const spawn = State.get("spawnCircle");
     Network.setSpawnCircle({ x: spawn.x, y: spawn.y });
   }
   if (isDraggingCapZone) {
+    actionTaken = true;
     const cz = State.get("capZone");
     Network.setCapZone({ x: cz.x, y: cz.y });
   }
   if (isDraggingLine) {
+    actionTaken = true;
     const preview = State.get("draggingPreview");
-    if (preview && preview.line) {
+    if (preview && preview.line && mouseMovedSinceDown) {
+      // FIX 3: Optimistic update to prevent visual flicker on drop.
+      const lines = State.get("lines").map((l) =>
+        l.id === preview.line.id ? preview.line : l,
+      );
+      State.set("lines", lines);
+
       Network.updateLine({
         id: preview.originalLine.id,
         start: preview.line.start,
@@ -138,12 +154,14 @@ function handleCanvasUp(e) {
   if (isDrawingLine) {
     const startPt = State.get("startPt");
     const endPt = State.get("mouse");
+    // FIX 6: The distance check correctly prevents creating tiny lines on simple clicks.
     if (startPt && distance(startPt, endPt) > 5) {
+      actionTaken = true;
       Network.createLine({ start: startPt, end: endPt });
     }
   }
 
-  // Reset flags & preview state
+  // Reset all state flags and temporary data
   isDraggingLine = false;
   isDraggingSpawn = false;
   isDraggingCapZone = false;
@@ -151,15 +169,72 @@ function handleCanvasUp(e) {
   State.set("startPt", null);
   State.set("currentLine", null);
   State.set("draggingPreview", null);
+
+  // FIX 6: If a drag operation happened on the canvas, prevent the mouseup
+  // event from accidentally triggering clicks on other UI elements.
+  if (actionTaken && e) {
+    e.preventDefault();
+  }
 }
 
 // --- Keyboard Handlers ---
+
+// FIX 10: Loop for smooth diagonal movement using requestAnimationFrame.
+function startNudgeLoop() {
+  if (nudgeLoopId) return; // Already running
+
+  const nudgeLoop = () => {
+    const selId = State.get("selectedLineId");
+    if (!selId || keysDown.size === 0) {
+      stopNudgeLoop();
+      return;
+    }
+
+    const nudge = { x: 0, y: 0 };
+    if (keysDown.has("ArrowUp")) nudge.y -= 1;
+    if (keysDown.has("ArrowDown")) nudge.y += 1;
+    if (keysDown.has("ArrowLeft")) nudge.x -= 1;
+    if (keysDown.has("ArrowRight")) nudge.x += 1;
+
+    if (nudge.x !== 0 || nudge.y !== 0) {
+      Network.updateLine({ id: selId, nudge });
+    }
+
+    nudgeLoopId = requestAnimationFrame(nudgeLoop);
+  };
+  nudgeLoopId = requestAnimationFrame(nudgeLoop);
+}
+
+function stopNudgeLoop() {
+  if (nudgeLoopId) {
+    cancelAnimationFrame(nudgeLoopId);
+    nudgeLoopId = null;
+  }
+}
+
+function handleKeyUp(e) {
+  keysDown.delete(e.key);
+  if (!e.key.startsWith("Arrow") && keysDown.size === 0) {
+    stopNudgeLoop();
+  }
+}
+
 function handleKeyDown(e) {
   const active = document.activeElement;
-  if (active && active.tagName === "INPUT") return;
+  if (active && (active.tagName === "INPUT" || active.tagName === "SELECT"))
+    return;
+
+  if (!State.get("gameActive")) return;
 
   const key = e.key.toLowerCase();
   const selId = State.get("selectedLineId");
+
+  const chatInput = UI.elems.chatInput;
+  if (key === "enter" && document.activeElement !== chatInput) {
+    e.preventDefault(); // ✅ use `e`, not `ev`
+    chatInput.focus();
+    return;
+  }
 
   // General commands (no selection needed)
   if (key === "z" && (e.metaKey || e.ctrlKey)) {
@@ -167,28 +242,31 @@ function handleKeyDown(e) {
     handleUndoLastLine();
     return;
   }
+
+  // FIX 5: 'h' key toggles username visibility.
+  if (key === "h") {
+    e.preventDefault();
+    const checkbox = UI.elems.hideUsernamesCheckbox;
+    if (checkbox) {
+      checkbox.checked = !checkbox.checked;
+      State.set("hideUsernames", checkbox.checked);
+    }
+    return;
+  }
   if (key === "c") {
     copyLineInfo(State.get("lines"));
     return;
   }
 
-  if (key === "c") {
-    copyLineInfo(State.get("lines"));
-    return;
-  }
   if (!selId) return;
   const line = State.get("lines").find((l) => l.id === selId);
   if (!line) return;
 
-  // Arrow nudges
+  // FIX 10: Arrow key nudges are now handled by the key tracking system.
   if (e.key.startsWith("Arrow") && !e.altKey && !e.shiftKey) {
     e.preventDefault();
-    const nudge = { x: 0, y: 0 };
-    if (e.key === "ArrowUp") nudge.y = -1;
-    if (e.key === "ArrowDown") nudge.y = 1;
-    if (e.key === "ArrowLeft") nudge.x = -1;
-    if (e.key === "ArrowRight") nudge.x = 1;
-    Network.updateLine({ id: selId, nudge });
+    keysDown.add(e.key);
+    startNudgeLoop();
     return;
   }
 
@@ -215,7 +293,7 @@ function handleKeyDown(e) {
     return;
   }
 
-  // Single-key shortcuts
+  // Other shortcuts
   switch (key) {
     case "b":
       Network.updateLine({
@@ -240,34 +318,8 @@ function handleKeyDown(e) {
   }
 }
 
-// --- Main Binding Function ---
-let areEventsBound = false;
-
-/**
- * Helper: safely add event listener if element exists.
- * Logs a warning when missing but doesn't throw.
- */
-function safeAddEvent(elem, eventName, handler) {
-  if (!elem) {
-    // keep console.info to avoid noisy warnings during tests, but helpful while debugging
-    console.warn(
-      `[bindUIEvents] Missing element for ${eventName}; skipping binding.`,
-    );
-    return;
-  }
-  elem.addEventListener(eventName, handler);
-}
-
-/**
- * createSliderHandler expects propName to be one of:
- *   "width", "height", "angle"
- * and maps it to the UI keys:
- *   lineWidthSlider, lineWidthValue, etc.
- */
 function createSliderHandlerFactory(elems) {
   return (propName) => {
-    if (!propName) return;
-    // map "width" -> "lineWidth", "height" -> "lineHeight", "angle" -> "lineAngle"
     const capitalized = propName[0].toUpperCase() + propName.slice(1);
     const prefix = `line${capitalized}`;
     const sliderKey = `${prefix}Slider`;
@@ -275,85 +327,103 @@ function createSliderHandlerFactory(elems) {
 
     const slider = elems[sliderKey];
     const valueLabel = elems[valueKey];
+    if (!slider) return;
 
-    if (!slider) {
-      console.warn(
-        `[bindUIEvents] Slider ${sliderKey} not found, skipping handlers for ${propName}.`,
-      );
-      return;
-    }
-
-    safeAddEvent(slider, "input", () => {
+    // FIX 1: Send network update on 'input' for live dragging feedback.
+    const handleInput = () => {
       if (valueLabel) valueLabel.innerText = slider.value;
-    });
-
-    safeAddEvent(slider, "change", () => {
       const id = State.get("selectedLineId");
       if (id) {
-        // parse suitable numeric value; fallback to Number for safety
         const parsed = parseFloat(slider.value);
-        const payload = {};
-        payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
+        const payload = {
+          [propName]: Number.isFinite(parsed) ? parsed : slider.value,
+        };
         Network.updateLine({ id, ...payload });
       }
-    });
+    };
+
+    slider.addEventListener("input", handleInput);
   };
 }
 
 export function bindUIEvents() {
-  if (areEventsBound) return;
+  const e = UI.elems;
 
-  // Ensure UI was initialized (best-effort). If UI.init exists and no elems found, call it.
-  try {
-    if (!UI.elems || Object.keys(UI.elems).length === 0) {
-      if (typeof UI.init === "function") {
-        UI.init();
-      }
-    }
-  } catch (err) {
-    console.warn(
-      "[bindUIEvents] UI.init invocation failed or UI not ready:",
-      err,
-    );
-  }
-
-  const e = UI.elems || {};
-
-  // convenience local factory
-  const createSliderHandler = createSliderHandlerFactory(e);
-
-  // BUTTONS / CONTROLS (all guarded)
+  // Lobby Controls
   safeAddEvent(e.joinBtn, "click", () => {
-    const nameInput = e.usernameInput;
-    if (!nameInput) return;
-    const name = nameInput.value;
+    const name = e.usernameInput.value;
     if (name) {
       Network.joinLobby(name);
       State.set("username", name);
-      // if (UI.hide) UI.hide("home");
-      // if (UI.show) UI.show("lobby");
     }
   });
 
-  safeAddEvent(e.readyCheckbox, "change", (ev) =>
-    Network.setReady(ev.target.checked),
-  );
+  // FIX 11: Pressing Enter in username field clicks the join button.
+  safeAddEvent(e.usernameInput, "keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      e.joinBtn.click();
+    }
+  });
+
+  // FIX 13: Disable checkbox initially. It will be enabled by `app.js` on lobby update.
+  if (e.readyCheckbox) e.readyCheckbox.disabled = true;
+  safeAddEvent(e.readyCheckbox, "change", (ev) => {
+    if (ev.target.disabled) {
+      ev.target.checked = false;
+      return;
+    }
+    Network.setReady(ev.target.checked);
+  });
+
+  // Game Controls
   safeAddEvent(e.voteCheckbox, "change", (ev) =>
     Network.voteFinish(ev.target.checked),
   );
+  safeAddEvent(e.hideUsernamesCheckbox, "change", (ev) =>
+    State.set("hideUsernames", ev.target.checked),
+  );
 
+  // Chat
   safeAddEvent(e.chatSendBtn, "click", () => {
-    const input = e.chatInput;
-    if (!input) return;
-    const msg = input.value;
+    const msg = e.chatInput.value;
     if (msg) Network.sendChat(msg);
-    input.value = "";
+    e.chatInput.value = "";
   });
-
   safeAddEvent(e.chatInput, "keydown", (ev) => {
-    if (ev.key === "Enter" && e.chatSendBtn) e.chatSendBtn.click();
+    if (ev.key === "Enter") e.chatSendBtn.click();
   });
 
+  // Canvas & Window Listeners
+  safeAddEvent(e.canvas, "mousedown", handleCanvasDown);
+  window.addEventListener("mousemove", handleCanvasMove);
+  window.addEventListener("mouseup", handleCanvasUp);
+  window.addEventListener("keydown", handleKeyDown);
+  window.addEventListener("keyup", handleKeyUp);
+
+  // Line Editor
+  createSliderHandlerFactory(e)("width");
+  createSliderHandlerFactory(e)("height");
+  createSliderHandlerFactory(e)("angle");
+
+  safeAddEvent(e.lineTypeSelect, "change", (ev) => {
+    const id = State.get("selectedLineId");
+    if (id) Network.updateLine({ id, type: ev.target.value });
+  });
+  safeAddEvent(e.deleteLineBtn, "click", () => {
+    const id = State.get("selectedLineId");
+    if (id) Network.deleteLine(id);
+  });
+  safeAddEvent(e.copyLineInfoBtn, "click", () => {
+    copyLineInfo(State.get("lines"));
+  });
+
+  safeAddEvent(e.copyMapBtn, "click", () => {
+    copyLineInfo(State.get("lines"));
+  });
+  safeAddEvent(e.pasteMapBtn, "click", () => {
+    pasteLines();
+  });
   safeAddEvent(e.toFrontBtn, "click", () =>
     Network.reorderLines({ id: State.get("selectedLineId"), toBack: false }),
   );
@@ -361,64 +431,23 @@ export function bindUIEvents() {
     Network.reorderLines({ id: State.get("selectedLineId"), toBack: true }),
   );
 
-  safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo(State.get("lines")));
-  safeAddEvent(
-    e.popupCloseBtn,
-    "click",
-    () => UI.hide && UI.hide("gameEndPopup"),
-  );
-  safeAddEvent(e.hideUsernamesCheckbox, "change", (ev) =>
-    State.set("hideUsernames", ev.target.checked),
-  );
-
-  // Canvas & Window (canvas must exist for canvas-specific handlers)
-  safeAddEvent(e.canvas, "mousedown", handleCanvasDown);
-  // window-level events can't be missing — still guard just in case
-  window.addEventListener("mousemove", handleCanvasMove);
-  window.addEventListener("mouseup", handleCanvasUp);
-  window.addEventListener("keydown", handleKeyDown);
-
-  // Line editor select
-  safeAddEvent(e.lineTypeSelect, "change", (ev) => {
-    const id = State.get("selectedLineId");
-    if (id) Network.updateLine({ id, type: ev.target.value });
-  });
-
-  // Correct mapping for sliders: accepts "width"/"height"/"angle" and maps to the "lineXxx" keys.
-  createSliderHandler("width");
-  createSliderHandler("height");
-  createSliderHandler("angle");
-
-  safeAddEvent(e.deleteLineBtn, "click", () => {
-    const id = State.get("selectedLineId");
-    if (id) Network.deleteLine(id);
-  });
-
   // Map Settings
-  // spawnSizeSlider is also created in UI._createLineEditor; guard it
+  // FIX 2: The spawn size slider now correctly sends map size updates. The visual reset bug was server-side.
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
     const size = parseInt(ev.target.value, 10);
     if (e.spawnSizeValue) e.spawnSizeValue.innerText = size;
+  });
+  safeAddEvent(e.spawnSizeSlider, "change", (ev) => {
+    const size = parseInt(ev.target.value, 10);
     Network.setMapSize(size);
   });
 
-  // Global: Focus chat on Enter key (guard e.chatInput)
-  window.addEventListener("keydown", (ev) => {
-    try {
-      if (
-        ev.key === "Enter" &&
-        e.chatInput &&
-        document.activeElement !== e.chatInput &&
-        State.get("gameActive")
-      ) {
-        ev.preventDefault();
-        e.chatInput.focus();
-      }
-    } catch (err) {
-      // defensive: ignore errors here
-      console.warn("[bindUIEvents] global Enter handler error:", err);
-    }
-  });
+  // Misc
+  safeAddEvent(e.popupCloseBtn, "click", () => UI.hide("gameEndPopup"));
+}
 
-  areEventsBound = true;
+function safeAddEvent(elem, eventName, handler) {
+  if (elem) {
+    elem.addEventListener(eventName, handler);
+  }
 }
