@@ -1,5 +1,5 @@
 import { normalizeAngle } from "./utils-client.js";
-
+import State from "./state.js";
 const SELECTORS = {
   home: "#homeScreen",
   canvasWrap: "#canvasWrapper",
@@ -38,7 +38,7 @@ const SELECTORS = {
   toFrontBtn: "#toFrontBtn",
   toBackBtn: "#toBackBtn",
   pasteMapBtn: "#pasteMapBtn",
-  drawPolyBtn: "#drawPolyBtn",
+  drawModeBtn: "#drawModeBtn",
   // polygon-specific selectors (kept and extended)
   polyEditor: "#polyEditor",
   deletePolyBtn: "#deletePolyBtn",
@@ -54,7 +54,8 @@ const SELECTORS = {
 class UI {
   constructor() {
     this.elems = {};
-    this.CONTROL_ELEMENT_WIDTH = "80px";
+    // consistent button width across rows
+    this.CONTROL_ELEMENT_WIDTH = "100px";
 
     // Controls for show/hide logic (keeps compatibility with previous code)
     this.LINE_CONTROLS = [
@@ -92,16 +93,12 @@ class UI {
     this._createUnifiedObjectEditor();
 
     // ensure initial visibility as original code intended
-    // call signature kept compatible: (selected, optionalFlag)
-    this.setLineSelectionVisible(false, true);
-    this.setPolygonSelectionVisible(false);
-
     if (this.elems.lineEditor) {
       this.elems.lineEditor.style.fontSize = "12px";
       this.elems.lineEditor.style.fontFamily = "Lexend, system-ui, sans-serif";
     }
 
-    // **FEATURE**: Create and append the tooltip element
+    // tooltip
     const tooltip = document.createElement("div");
     tooltip.id = "hoverTooltip";
     Object.assign(tooltip.style, {
@@ -113,22 +110,25 @@ class UI {
       borderRadius: "4px",
       fontSize: "11px",
       fontFamily: "monospace",
-      pointerEvents: "none", // Allows clicks to pass through
+      pointerEvents: "none",
       zIndex: 1001,
-      whiteSpace: "pre", // Preserves formatting
+      whiteSpace: "pre",
     });
     document.body.appendChild(tooltip);
     this.elems.tooltip = tooltip;
+
+    // ensure initial editor visibility is consistent (no selected objects)
+    this.setObjectEditorVisible([]);
   }
 
   _createUnifiedObjectEditor() {
     const controlBox = document.querySelector(".control-box");
     if (!controlBox) return;
 
-    // Clear existing controls (like original)
+    // Clear existing controls
     controlBox.innerHTML = "";
 
-    // Status
+    // Status (top row across full width)
     const status = document.createElement("div");
     status.id = "status";
     status.innerText = "Draw by dragging on canvas";
@@ -136,11 +136,11 @@ class UI {
     status.style.textAlign = "center";
     status.style.fontSize = "12px";
     status.style.whiteSpace = "nowrap";
-    status.style.marginBottom = "8px";
+    // status.style.margin = "6px 0";
     controlBox.appendChild(status);
     this.elems.statusText = status;
 
-    // Container layout
+    // Container layout - compact
     const container = document.createElement("div");
     container.style.display = "flex";
     container.style.justifyContent = "space-between";
@@ -148,274 +148,162 @@ class UI {
     container.style.gap = "12px";
     container.style.width = "100%";
     container.style.boxSizing = "border-box";
+    // reduce overall vertical footprint
+    // container.style.padding = "6px 4px";
 
-    // Left column (global controls + delete/type/order)
+    // Left column - EXACTLY 3 rows as requested
     const leftCol = document.createElement("div");
     leftCol.style.display = "flex";
     leftCol.style.flexDirection = "column";
-    leftCol.style.gap = "8px";
-    leftCol.style.width = "150px";
+    leftCol.style.gap = "6px";
+    leftCol.style.width = "300px"; // fixed to keep alignment predictable
+    leftCol.style.boxSizing = "border-box";
+    leftCol.style.marginRight = "20px";
 
-    // Draw polygon toggle
-    const drawPolyBtn = document.createElement("button");
-    drawPolyBtn.id = "drawPolyBtn";
-    drawPolyBtn.textContent = "Draw Polygon (OFF)";
-    drawPolyBtn.style.height = "22px";
-    drawPolyBtn.style.padding = "4px";
-    drawPolyBtn.style.fontSize = "12px";
-    drawPolyBtn.style.marginBottom = "8px";
-    this.elems.drawPolyBtn = drawPolyBtn;
-    leftCol.appendChild(drawPolyBtn);
+    // Row 1: draw mode button + paste map button (aligned)
+    const leftRow1 = document.createElement("div");
+    leftRow1.style.display = "flex";
+    leftRow1.style.alignItems = "center";
+    leftRow1.style.justifyContent = "left";
+    leftRow1.style.gap = "8px";
 
-    // Map size slider row
-    const rowMapSize = document.createElement("div");
-    rowMapSize.style.display = "flex";
-    rowMapSize.style.alignItems = "center";
-    rowMapSize.style.gap = "20px";
+    const drawModeBtn = document.createElement("button");
+    drawModeBtn.id = "drawModeBtn";
+    drawModeBtn.textContent = "Mode: Line (M)";
+    drawModeBtn.style.height = "26px";
+    drawModeBtn.style.padding = "4px 8px";
+    drawModeBtn.style.fontSize = "12px";
+    drawModeBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    drawModeBtn.style.boxSizing = "border-box";
+    this.elems.drawModeBtn = drawModeBtn;
 
-    const spawnLabel = document.createElement("label");
-    spawnLabel.setAttribute("for", "spawnSizeSlider");
-    spawnLabel.style.whiteSpace = "nowrap";
-    spawnLabel.style.width = "120px";
-    spawnLabel.style.fontSize = "12px";
-    spawnLabel.innerText = "Map Size:";
-
-    const spawnSlider = document.createElement("input");
-    spawnSlider.type = "range";
-    spawnSlider.id = "spawnSizeSlider";
-    spawnSlider.min = "1";
-    spawnSlider.max = "13";
-    spawnSlider.value = "6";
-    spawnSlider.style.flex = "1";
-    spawnSlider.style.height = "20px";
-    spawnSlider.style.marginRight = "0px";
-    spawnSlider.style.minWidth = "150px";
-    spawnSlider.style.maxWidth = "360px";
-
-    const spawnVal = document.createElement("span");
-    spawnVal.id = "spawnSizeValue";
-    spawnVal.style.minWidth = "10px";
-    spawnVal.style.textAlign = "right";
-    spawnVal.innerText = spawnSlider.value;
-    spawnVal.style.flexShrink = "0";
-
-    this.elems.spawnSizeSlider = spawnSlider;
-    this.elems.spawnSizeValue = spawnVal;
-
-    rowMapSize.appendChild(spawnLabel);
-    rowMapSize.appendChild(spawnSlider);
-    rowMapSize.appendChild(spawnVal);
-    leftCol.appendChild(rowMapSize);
-
-    // Row: Paste map / Delete (line) / Type (line)
-    const rowDelete = document.createElement("div");
-    rowDelete.style.display = "flex";
-    rowDelete.style.alignItems = "center";
-    rowDelete.style.gap = "8px";
-    rowDelete.style.width = "100%";
-    rowDelete.style.justifyContent = "space-between";
-
-    // Paste Map button
     const pasteBtn = document.createElement("button");
     pasteBtn.id = "pasteMapBtn";
     pasteBtn.textContent = "Paste Map";
     pasteBtn.title = "Paste map from clipboard";
     pasteBtn.setAttribute("aria-label", "Paste Map");
     pasteBtn.type = "button";
-    pasteBtn.style.height = "22px";
-    pasteBtn.style.padding = "4px 4px";
+    pasteBtn.style.height = "26px";
+    pasteBtn.style.padding = "4px 8px";
     pasteBtn.style.fontSize = "12px";
-    pasteBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
+    pasteBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    pasteBtn.style.boxSizing = "border-box";
 
-    // Delete button for lines
+    leftRow1.appendChild(drawModeBtn);
+    leftRow1.appendChild(pasteBtn);
+
+    // Row 2: Delete and Type select
+    const leftRow2 = document.createElement("div");
+    leftRow2.style.display = "flex";
+    leftRow2.style.alignItems = "center";
+    leftRow2.style.justifyContent = "left";
+    leftRow2.style.gap = "8px";
+
     const deleteLineBtn = document.createElement("button");
     deleteLineBtn.id = "deleteLineBtn";
     deleteLineBtn.disabled = true;
     deleteLineBtn.textContent = "Delete";
-    deleteLineBtn.style.height = "22px";
-    deleteLineBtn.style.padding = "4px 4px";
+    deleteLineBtn.style.height = "26px";
+    deleteLineBtn.style.padding = "4px 8px";
     deleteLineBtn.style.fontSize = "12px";
-    deleteLineBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
-    deleteLineBtn.title = "Delete selected line";
+    deleteLineBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    deleteLineBtn.style.boxSizing = "border-box";
+    deleteLineBtn.title = "Delete selected object";
 
-    // Delete button for polys (separate DOM element, visually identical)
+    // unified poly delete (kept for compatibility)
     const deletePolyBtn = document.createElement("button");
     deletePolyBtn.id = "deletePolyBtn";
     deletePolyBtn.disabled = true;
     deletePolyBtn.textContent = "Delete";
-    deletePolyBtn.style.height = "22px";
-    deletePolyBtn.style.padding = "4px 4px";
+    deletePolyBtn.style.height = "26px";
+    deletePolyBtn.style.padding = "4px 8px";
     deletePolyBtn.style.fontSize = "12px";
-    deletePolyBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
+    deletePolyBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    deletePolyBtn.style.boxSizing = "border-box";
     deletePolyBtn.title = "Delete selected polygon";
 
-    // Type select for lines
-    const lineTypeSelect = document.createElement("select");
-    lineTypeSelect.id = "lineTypeSelect";
-    lineTypeSelect.disabled = true;
-    lineTypeSelect.innerHTML = `<option value="none">None</option><option value="bouncy">Bouncy</option><option value="death">Death</option>`;
-    lineTypeSelect.style.height = "22px";
-    lineTypeSelect.style.fontSize = "12px";
-    lineTypeSelect.style.width = this.CONTROL_ELEMENT_WIDTH;
-    lineTypeSelect.title = "Line type";
+    const typeSelect = document.createElement("select");
+    typeSelect.id = "lineTypeSelect";
+    typeSelect.disabled = true;
+    typeSelect.innerHTML = `<option value="none">None</option><option value="bouncy">Bouncy</option><option value="death">Death</option>`;
+    typeSelect.style.height = "26px";
+    typeSelect.style.fontSize = "12px";
+    typeSelect.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    typeSelect.style.boxSizing = "border-box";
+    typeSelect.title = "Object type";
 
-    // Type select for polys
     const polyTypeSelect = document.createElement("select");
     polyTypeSelect.id = "polyTypeSelect";
     polyTypeSelect.disabled = true;
     polyTypeSelect.innerHTML = `<option value="none">None</option><option value="bouncy">Bouncy</option><option value="death">Death</option>`;
-    polyTypeSelect.style.height = "22px";
+    polyTypeSelect.style.height = "26px";
     polyTypeSelect.style.fontSize = "12px";
-    polyTypeSelect.style.width = this.CONTROL_ELEMENT_WIDTH;
-    polyTypeSelect.title = "Polygon type";
+    polyTypeSelect.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    polyTypeSelect.style.boxSizing = "border-box";
+    polyTypeSelect.title = "Polygon type"; // hidden until poly selected
 
-    const leftSlot = document.createElement("div");
-    leftSlot.style.display = "flex";
-    leftSlot.style.alignItems = "center";
-    leftSlot.style.justifyContent = "flex-start";
-    leftSlot.style.width = "120px";
-    leftSlot.appendChild(pasteBtn);
+    // append both selects to the row (we'll show/hide them in setObjectEditorVisible/_toggle)
+    leftRow2.appendChild(deleteLineBtn);
+    leftRow2.appendChild(deletePolyBtn);
+    leftRow2.appendChild(typeSelect);
+    leftRow2.appendChild(polyTypeSelect);
 
-    const middleSlot = document.createElement("div");
-    middleSlot.style.display = "flex";
-    middleSlot.style.alignItems = "center";
-    middleSlot.style.justifyContent = "center";
-    middleSlot.style.flex = "1";
-    // For center, append both delete buttons but hide/show by selection state
-    middleSlot.appendChild(deleteLineBtn);
-    middleSlot.appendChild(deletePolyBtn);
-
-    const rightSlot = document.createElement("div");
-    rightSlot.style.display = "flex";
-    rightSlot.style.alignItems = "center";
-    rightSlot.style.justifyContent = "flex-end";
-    rightSlot.style.width = "120px";
-    // append both type selects; visibility controlled later
-    rightSlot.appendChild(lineTypeSelect);
-    rightSlot.appendChild(polyTypeSelect);
-
-    rowDelete.appendChild(leftSlot);
-    rowDelete.appendChild(middleSlot);
-    rowDelete.appendChild(rightSlot);
-    leftCol.appendChild(rowDelete);
-
-    // Row: Order (move front/back) - separate pair for line and poly
-    const rowOrder = document.createElement("div");
-    rowOrder.style.display = "flex";
-    rowOrder.style.alignItems = "center";
-    rowOrder.style.gap = "8px";
-    rowOrder.style.width = "100%";
-    rowOrder.style.justifyContent = "space-between";
-
-    const orderLabel = document.createElement("span");
-    orderLabel.innerText = "Move line to:";
-    orderLabel.id = "orderLabel";
-    orderLabel.style.fontSize = "11px";
-    orderLabel.style.opacity = "0.9";
-    orderLabel.style.width = "80px";
-
-    const buttonGroup = document.createElement("div");
-    buttonGroup.style.display = "flex";
-    buttonGroup.style.gap = "8px";
-    buttonGroup.style.alignItems = "center";
+    // Row 3: Move to Front / Back (aligned)
+    const leftRow3 = document.createElement("div");
+    leftRow3.style.display = "flex";
+    leftRow3.style.alignItems = "center";
+    leftRow3.style.justifyContent = "left";
+    leftRow3.style.gap = "8px";
 
     const toFrontBtn = document.createElement("button");
     toFrontBtn.id = "toFrontBtn";
     toFrontBtn.textContent = "Front";
     toFrontBtn.title = "Bring to front";
-    toFrontBtn.setAttribute("aria-label", "Bring to front");
-    toFrontBtn.style.height = "22px";
-    toFrontBtn.style.padding = "4px 4px";
+    toFrontBtn.style.height = "26px";
+    toFrontBtn.style.padding = "4px 8px";
     toFrontBtn.style.fontSize = "12px";
-    toFrontBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
+    toFrontBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    toFrontBtn.style.boxSizing = "border-box";
 
     const toBackBtn = document.createElement("button");
     toBackBtn.id = "toBackBtn";
     toBackBtn.textContent = "Back";
     toBackBtn.title = "Send to back";
-    toBackBtn.setAttribute("aria-label", "Send to back");
-    toBackBtn.style.height = "22px";
-    toBackBtn.style.padding = "4px 4px";
+    toBackBtn.style.height = "26px";
+    toBackBtn.style.padding = "4px 8px";
     toBackBtn.style.fontSize = "12px";
-    toBackBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
+    toBackBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    toBackBtn.style.boxSizing = "border-box";
 
-    buttonGroup.appendChild(toFrontBtn);
-    buttonGroup.appendChild(toBackBtn);
+    leftRow3.appendChild(toFrontBtn);
+    leftRow3.appendChild(toBackBtn);
 
-    const orderLeftSlot = document.createElement("div");
-    orderLeftSlot.style.display = "flex";
-    orderLeftSlot.style.alignItems = "center";
-    orderLeftSlot.style.justifyContent = "flex-start";
-    orderLeftSlot.style.width = "120px";
-    orderLeftSlot.appendChild(orderLabel);
+    // Append rows into left column (exactly three rows)
+    leftCol.appendChild(leftRow1);
+    leftCol.appendChild(leftRow2);
+    leftCol.appendChild(leftRow3);
 
-    const orderMiddleSlot = document.createElement("div");
-    orderMiddleSlot.style.display = "flex";
-    orderMiddleSlot.style.alignItems = "center";
-    orderMiddleSlot.style.justifyContent = "center";
-    orderMiddleSlot.style.flex = "1";
-    orderMiddleSlot.appendChild(buttonGroup);
-
-    const orderRightSlot = document.createElement("div");
-    orderRightSlot.style.display = "flex";
-    orderRightSlot.style.alignItems = "center";
-    orderRightSlot.style.justifyContent = "flex-end";
-    orderRightSlot.style.width = "120px";
-
-    rowOrder.appendChild(orderLeftSlot);
-    rowOrder.appendChild(orderMiddleSlot);
-    rowOrder.appendChild(orderRightSlot);
-    leftCol.appendChild(rowOrder);
-
-    // For polygons: separate move label and buttons (so we can show/hide and keep wording)
-    const polyOrderRow = rowOrder.cloneNode(true);
-    const polyOrderLabel = polyOrderRow.querySelector("span");
-    polyOrderLabel.innerText = "Move poly to:";
-    polyOrderLabel.id = "polyOrderLabel";
-    // create poly front/back as separate elements so selectors match
-    const polyToFrontBtn = document.createElement("button");
-    polyToFrontBtn.id = "polyToFrontBtn";
-    polyToFrontBtn.textContent = "Front";
-    polyToFrontBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
-    polyToFrontBtn.style.height = "22px";
-
-    const polyToBackBtn = document.createElement("button");
-    polyToBackBtn.id = "polyToBackBtn";
-    polyToBackBtn.textContent = "Back";
-    polyToBackBtn.style.width = this.CONTROL_ELEMENT_WIDTH;
-    polyToBackBtn.style.height = "22px";
-
-    // replace the cloned buttonGroup contents with these poly buttons
-    const polyButtonsContainer = polyOrderRow.querySelector(
-      "div:nth-child(2) div",
-    );
-    polyButtonsContainer.innerHTML = "";
-    polyButtonsContainer.appendChild(polyToFrontBtn);
-    polyButtonsContainer.appendChild(polyToBackBtn);
-
-    leftCol.appendChild(polyOrderRow);
-
-    // spacer
-    leftCol.appendChild(document.createElement("div"));
-
-    // Right column: sliders / angle / scale
+    // Right column - up to 4 rows, compact spacing
     const rightCol = document.createElement("div");
     rightCol.style.display = "flex";
     rightCol.style.flexDirection = "column";
-    rightCol.style.gap = "0px";
-    rightCol.style.flex = "0 0 420px";
-    rightCol.style.minWidth = "240px";
+    rightCol.style.gap = "6px"; // slightly smaller spacing
+    rightCol.style.flex = "1";
+    rightCol.style.minWidth = "320px";
+    rightCol.style.boxSizing = "border-box";
 
-    const makeSliderRow = (id, labelText, min, max, defaultVal) => {
+    // Make a generic compact slider row factory
+    const makeCompactSliderRow = (id, labelText, min, max, defaultVal) => {
       const row = document.createElement("div");
       row.style.display = "flex";
       row.style.alignItems = "center";
+      row.style.justifyContent = "space-between";
       row.style.gap = "8px";
       row.style.width = "100%";
 
       const label = document.createElement("label");
       label.setAttribute("for", id);
-      label.style.width = "130px";
+      label.style.width = "110px";
       label.style.textAlign = "left";
       label.style.fontSize = "12px";
 
@@ -440,14 +328,14 @@ class UI {
       input.max = String(max);
       input.value = String(defaultVal);
       input.style.flex = "1";
-      input.style.height = "28px";
+      input.style.height = "24px";
+      input.style.margin = "0 8px";
 
       const value = document.createElement("div");
       value.id = `${id}Value`;
-      value.style.width = "56px";
+      value.style.width = "48px";
       value.style.textAlign = "right";
       value.style.fontSize = "12px";
-      value.style.paddingRight = "10px";
       value.innerText = input.value;
 
       row.appendChild(label);
@@ -457,22 +345,31 @@ class UI {
       return { row, input, value, label };
     };
 
-    // Line sliders (width, height, angle)
-    const lineWidth = makeSliderRow(
+    // Row 1 (right): Map Size slider (compact)
+    const mapSizeRow = makeCompactSliderRow(
+      "spawnSizeSlider",
+      "Map Size:",
+      1,
+      13,
+      9,
+    );
+
+    // Line editing rows: width / height / angle (compact)
+    const lineWidth = makeCompactSliderRow(
       "lineWidthSlider",
       "Width (ALT + L/R)",
       1,
       1000,
       100,
     );
-    const lineHeight = makeSliderRow(
+    const lineHeight = makeCompactSliderRow(
       "lineHeightSlider",
       "Height (ALT + U/D)",
       1,
       1000,
       4,
     );
-    const lineAngle = makeSliderRow(
+    const lineAngle = makeCompactSliderRow(
       "lineAngleSlider",
       "Angle (SHIFT + L/R)",
       0,
@@ -480,15 +377,15 @@ class UI {
       0,
     );
 
-    // Polygon sliders: scale and angle (angle allowed 0-360 and shown above scale)
-    const polyAngle = makeSliderRow(
+    // Polygon controls appended after line controls (angle then scale)
+    const polyAngle = makeCompactSliderRow(
       "polyAngleSlider",
       "Angle (SHIFT + L/R)",
       0,
       180,
       0,
     );
-    const polyScale = makeSliderRow(
+    const polyScale = makeCompactSliderRow(
       "polyScaleSlider",
       "Scale (ALT + U/D)",
       10,
@@ -496,106 +393,154 @@ class UI {
       100,
     );
 
-    // append both sets; visibility toggled depending on selection
-    // polygon wants angle row above scale: so append in that order
+    // append rows into right column (in this order)
+    rightCol.appendChild(mapSizeRow.row);
     rightCol.appendChild(lineWidth.row);
     rightCol.appendChild(lineHeight.row);
     rightCol.appendChild(lineAngle.row);
-
-    // separate visual divider for poly controls
-    const polyDivider = document.createElement("div");
-    polyDivider.style.height = "8px";
-    rightCol.appendChild(polyDivider);
-
+    // poly controls appended but visually hidden unless poly selected
+    // we'll keep them available for toggling
     rightCol.appendChild(polyAngle.row);
     rightCol.appendChild(polyScale.row);
 
+    // Append left & right into container
     container.appendChild(leftCol);
     container.appendChild(rightCol);
     controlBox.appendChild(container);
 
-    // Assign to this.elems for access elsewhere
-    // Line elements
-    this.elems.lineEditor = rightCol;
-    this.elems.lineWidthSlider = lineWidth.input;
-    this.elems.lineHeightSlider = lineHeight.input;
-    this.elems.lineAngleSlider = lineAngle.input;
-    this.elems.lineWidthValue = lineWidth.value;
-    this.elems.lineHeightValue = lineHeight.value;
-    this.elems.lineAngleValue = lineAngle.value;
-    this.elems.lineWidthRow = lineWidth.row;
-    this.elems.lineHeightRow = lineHeight.row;
-    this.elems.lineAngleRow = lineAngle.row;
+    // Assign to this.elems for access elsewhere (IDs preserved)
+    this.elems.lineEditor = rightCol; // editor container
+    // Left elems
+    this.elems.drawModeBtn = drawModeBtn;
+    this.elems.pasteMapBtn = pasteBtn;
     this.elems.deleteLineBtn = deleteLineBtn;
-    this.elems.lineTypeSelect = lineTypeSelect;
+    this.elems.deletePolyBtn = deletePolyBtn;
+    this.elems.lineTypeSelect = typeSelect;
+    this.elems.polyTypeSelect = polyTypeSelect;
     this.elems.toFrontBtn = toFrontBtn;
     this.elems.toBackBtn = toBackBtn;
-    this.elems.pasteMapBtn = pasteBtn;
-    this.elems.orderLabel = orderLabel;
 
-    // Poly elements
-    this.elems.polyEditor = rightCol; // same visual editor container
-    this.elems.deletePolyBtn = deletePolyBtn;
-    this.elems.polyTypeSelect = polyTypeSelect;
-    this.elems.polyScaleSlider = polyScale.input;
-    this.elems.polyScaleValue = polyScale.value;
+    // Right elems (sliders & values)
+    this.elems.spawnSizeSlider = mapSizeRow.input;
+    this.elems.spawnSizeValue = mapSizeRow.value;
+    this.elems.lineWidthSlider = lineWidth.input;
+    this.elems.lineWidthValue = lineWidth.value;
+    this.elems.lineHeightSlider = lineHeight.input;
+    this.elems.lineHeightValue = lineHeight.value;
+    this.elems.lineAngleSlider = lineAngle.input;
+    this.elems.lineAngleValue = lineAngle.value;
     this.elems.polyAngleSlider = polyAngle.input;
     this.elems.polyAngleValue = polyAngle.value;
-    this.elems.polyToFrontBtn = polyToFrontBtn;
-    this.elems.polyToBackBtn = polyToBackBtn;
+    this.elems.polyScaleSlider = polyScale.input;
+    this.elems.polyScaleValue = polyScale.value;
 
-    // other elements
-    this.elems.drawPolyBtn = drawPolyBtn;
-    this.elems.spawnSizeSlider = spawnSlider;
-    this.elems.spawnSizeValue = spawnVal;
+    // keep older keys for compatibility
+    this.elems.pasteMapBtn = pasteBtn;
+    this.elems.orderLabel = this.elems.orderLabel || null;
     this.elems.copyMapBtn = this.elems.copyMapBtn || null;
     this.elems.copyLineInfoBtn = this.elems.copyLineInfoBtn || null;
     this.elems.popupCloseBtn = this.elems.popupCloseBtn || null;
 
-    // default initial visibility: hide poly-specific elements
-    // (they will be shown when setPolygonSelectionVisible(true) is called)
-    this._hidePolyControlsImmediate();
-    this._hideLineControlsImmediate();
+    // Make sure poly controls are hidden by default (no selection)
+    // these actual show/hide toggles controlled by setObjectEditorVisible
+    polyAngle.row.style.display = "none";
+    polyScale.row.style.display = "none";
   }
 
-  // helpers to hide groups immediately (no toggling logic)
-  _hidePolyControlsImmediate() {
-    const keys = [
+  // A single function to control visibility and syncing
+  setObjectEditorVisible(selectedObjects) {
+    const count = Array.isArray(selectedObjects) ? selectedObjects.length : 0;
+    const statusEl = this.elems.statusText;
+
+    if (count === 0) {
+      if (statusEl) statusEl.style.display = "block";
+      // hide specific controls
+      this._toggleControlGroup("line", false);
+      this._toggleControlGroup("poly", false);
+      const mode = State.get("drawingMode");
+      let statusText = "Draw by dragging on canvas.";
+      if (mode === "poly") statusText = "Click to start drawing a polygon.";
+      if (mode === "select") statusText = "Drag on canvas to select objects.";
+      this.setStatus(statusText);
+    } else if (count === 1) {
+      const object = selectedObjects[0];
+      if (statusEl) statusEl.style.display = "none";
+
+      if (object.type === "line") {
+        this._toggleControlGroup("poly", false);
+        this._toggleControlGroup("line", true);
+        this.updateLineEditorValues(object);
+      } else if (object.type === "poly") {
+        this._toggleControlGroup("line", false);
+        this._toggleControlGroup("poly", true);
+        this.updatePolygonEditorValues(object);
+      }
+    } else {
+      // Multi-selection
+      if (statusEl) statusEl.style.display = "block";
+      this._toggleControlGroup("line", false);
+      this._toggleControlGroup("poly", false);
+      this.setStatus(`${count} objects selected. Use hotkeys to edit.`);
+    }
+  }
+
+  _toggleControlGroup(type, show) {
+    const isPoly = type === "poly";
+
+    // Line group toggles:
+    // Delete button, type select, and line sliders
+    if (this.elems.deleteLineBtn)
+      this.elems.deleteLineBtn.style.display =
+        !isPoly && show ? "inline-flex" : "none";
+    if (this.elems.lineTypeSelect)
+      this.elems.lineTypeSelect.style.display =
+        !isPoly && show ? "inline-flex" : "none";
+    if (this.elems.lineWidthSlider)
+      this.elems.lineWidthSlider.parentElement.style.display =
+        !isPoly && show ? "flex" : "none";
+    if (this.elems.lineHeightSlider)
+      this.elems.lineHeightSlider.parentElement.style.display =
+        !isPoly && show ? "flex" : "none";
+    if (this.elems.lineAngleSlider)
+      this.elems.lineAngleSlider.parentElement.style.display =
+        !isPoly && show ? "flex" : "none";
+
+    // Poly group toggles:
+    if (this.elems.deletePolyBtn)
+      this.elems.deletePolyBtn.style.display =
+        isPoly && show ? "inline-flex" : "none";
+    if (this.elems.polyTypeSelect)
+      this.elems.polyTypeSelect.style.display =
+        isPoly && show ? "inline-flex" : "none";
+    if (this.elems.polyAngleSlider)
+      this.elems.polyAngleSlider.parentElement.style.display =
+        isPoly && show ? "flex" : "none";
+    if (this.elems.polyScaleSlider)
+      this.elems.polyScaleSlider.parentElement.style.display =
+        isPoly && show ? "flex" : "none";
+
+    // Buttons enabled/disabled
+    const lineControls = [
+      "deleteLineBtn",
+      "lineTypeSelect",
+      "toFrontBtn",
+      "toBackBtn",
+    ];
+    lineControls.forEach((key) => {
+      const el = this.elems[key];
+      if (el && "disabled" in el) el.disabled = !show;
+    });
+
+    const polyControls = [
       "deletePolyBtn",
       "polyTypeSelect",
-      "polyScaleSlider",
-      "polyScaleValue",
-      "polyAngleSlider",
-      "polyAngleValue",
       "polyToFrontBtn",
       "polyToBackBtn",
     ];
-    for (const k of keys) {
-      const el = this.elems[k];
-      if (!el) continue;
-      // element might be a row or value div
-      if (el.style) el.style.display = "none";
-      if ("disabled" in el) el.disabled = true;
-    }
-  }
-
-  _hideLineControlsImmediate() {
-    const keys = [
-      "deleteLineBtn",
-      "lineTypeSelect",
-      "orderLabel",
-      "toFrontBtn",
-      "toBackBtn",
-      "lineWidthRow",
-      "lineHeightRow",
-      "lineAngleRow",
-    ];
-    for (const k of keys) {
-      const el = this.elems[k];
-      if (!el) continue;
-      if (el.style) el.style.display = "none";
-      if ("disabled" in el) el.disabled = true;
-    }
+    polyControls.forEach((key) => {
+      const el = this.elems[key];
+      if (el && "disabled" in el) el.disabled = !show;
+    });
   }
 
   show(selectorKey) {
@@ -605,155 +550,7 @@ class UI {
     this._setDisplay(selectorKey, this.DISPLAY.HIDDEN);
   }
 
-  showObjectEditor(object) {
-    if (!object) {
-      this.setLineSelectionVisible(false);
-      this.setPolygonSelectionVisible(false);
-      return;
-    }
-    if (object.type === "line") {
-      this.setPolygonSelectionVisible(false);
-      this.setLineSelectionVisible(true);
-      this.updateLineEditorValues(object);
-    } else if (object.type === "poly") {
-      this.setLineSelectionVisible(false);
-      this.setPolygonSelectionVisible(true);
-      this.updatePolygonEditorValues(object);
-    }
-  }
-
-  // kept second parameter for backward compatibility
-  setLineSelectionVisible(selected, _keepStatusHidden = false) {
-    const show = Boolean(selected);
-    const panelDisplay = show ? this.DISPLAY.PANEL : this.DISPLAY.HIDDEN;
-
-    // Show the common editor container (right column) only when either mode is active.
-    if (this.elems.lineEditor)
-      this.elems.lineEditor.style.display = panelDisplay;
-
-    // statusText is hidden when an object is selected (original behaviour)
-    if (this.elems.statusText)
-      this.elems.statusText.style.display = show
-        ? this.DISPLAY.HIDDEN
-        : "block";
-
-    // Show/hide line-specific controls
-    this.LINE_CONTROLS.forEach((k) => {
-      const el = this.elems[k];
-      if (!el) return;
-      el.style.display = show ? this.DISPLAY.CONTROL : this.DISPLAY.HIDDEN;
-      if ("disabled" in el) el.disabled = !show;
-    });
-
-    // Show/hide slider rows for lines (width/height/angle)
-    const sliderRows = [
-      ["lineWidthSlider", "lineWidthRow"],
-      ["lineHeightSlider", "lineHeightRow"],
-      ["lineAngleSlider", "lineAngleRow"],
-    ];
-    for (const [sliderKey, rowKey] of sliderRows) {
-      if (this.elems[rowKey])
-        this.elems[rowKey].style.display = show ? "flex" : this.DISPLAY.HIDDEN;
-      if (this.elems[sliderKey]) this.elems[sliderKey].disabled = !show;
-    }
-
-    // Hide polygon controls when showing lines
-    this.POLY_CONTROLS.forEach((k) => {
-      const el = this.elems[k];
-      if (!el) return;
-      // angle/scale rows may be rows or inputs
-      if (el.style) el.style.display = this.DISPLAY.HIDDEN;
-      if ("disabled" in el) el.disabled = true;
-    });
-
-    // ensure delete button text for lines visible
-    if (this.elems.deleteLineBtn)
-      this.elems.deleteLineBtn.style.display = show
-        ? "inline-flex"
-        : this.DISPLAY.HIDDEN;
-  }
-
-  setPolygonSelectionVisible(selected) {
-    const show = Boolean(selected);
-    const display = show ? "flex" : "none";
-
-    // Use same right column
-    if (this.elems.polyEditor)
-      this.elems.polyEditor.style.display = show
-        ? this.DISPLAY.PANEL
-        : this.DISPLAY.HIDDEN;
-
-    // Show/hide polygon-specific controls
-    this.POLY_CONTROLS.forEach((key) => {
-      const el = this.elems[key];
-      if (!el) return;
-      // For the scale/angle rows we want "flex", otherwise "inline-flex" where appropriate
-      if (
-        key.endsWith("Row") ||
-        key.endsWith("Slider") ||
-        key.endsWith("Value") ||
-        key.includes("Angle")
-      ) {
-        el.style.display = show ? "flex" : this.DISPLAY.HIDDEN;
-      } else {
-        el.style.display = show ? this.DISPLAY.CONTROL : this.DISPLAY.HIDDEN;
-      }
-      if ("disabled" in el) el.disabled = !show;
-    });
-
-    // Show poly-specific rows (polyAngle, polyScale)
-    if (
-      this.elems.polyAngleSlider &&
-      this.elems.polyAngleSlider.parentElement
-    ) {
-      this.elems.polyAngleSlider.parentElement.style.display = show
-        ? "flex"
-        : this.DISPLAY.HIDDEN;
-    }
-    if (
-      this.elems.polyScaleSlider &&
-      this.elems.polyScaleSlider.parentElement
-    ) {
-      this.elems.polyScaleSlider.parentElement.style.display = show
-        ? "flex"
-        : this.DISPLAY.HIDDEN;
-    }
-
-    // Hide line controls when polygons are selected
-    this.LINE_CONTROLS.forEach((k) => {
-      const el = this.elems[k];
-      if (!el) return;
-      el.style.display = this.DISPLAY.HIDDEN;
-      if ("disabled" in el) el.disabled = true;
-    });
-    if (this.elems.lineWidthRow)
-      this.elems.lineWidthRow.style.display = this.DISPLAY.HIDDEN;
-    if (this.elems.lineHeightRow)
-      this.elems.lineHeightRow.style.display = this.DISPLAY.HIDDEN;
-    if (this.elems.lineAngleRow)
-      this.elems.lineAngleRow.style.display = this.DISPLAY.HIDDEN;
-
-    // show/hide poly delete/type buttons explicitly
-    if (this.elems.deletePolyBtn)
-      this.elems.deletePolyBtn.style.display = show
-        ? "inline-flex"
-        : this.DISPLAY.HIDDEN;
-    if (this.elems.polyTypeSelect)
-      this.elems.polyTypeSelect.style.display = show
-        ? "inline-flex"
-        : this.DISPLAY.HIDDEN;
-    if (this.elems.polyToFrontBtn)
-      this.elems.polyToFrontBtn.style.display = show
-        ? "inline-flex"
-        : this.DISPLAY.HIDDEN;
-    if (this.elems.polyToBackBtn)
-      this.elems.polyToBackBtn.style.display = show
-        ? "inline-flex"
-        : this.DISPLAY.HIDDEN;
-  }
-
   updateLineEditorValues(line) {
-    if (!line) return this.setLineSelectionVisible(false);
     const w = Math.round(
       line.width ??
         Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y),
@@ -780,9 +577,7 @@ class UI {
   }
 
   updatePolygonEditorValues(poly) {
-    if (!poly) return this.setPolygonSelectionVisible(false);
     const angle = Math.round(poly.a ?? 0);
-    // FIX: Server's scale is 1 by default. Multiply by 100 for the UI slider.
     const scale = Math.round((poly.scale ?? 1) * 100);
 
     if (this.elems.polyAngleSlider)
@@ -843,7 +638,6 @@ class UI {
   }
 
   clearChat() {
-    // preserved as requested
     if (this.elems.chatMessages) this.elems.chatMessages.innerHTML = "";
   }
 

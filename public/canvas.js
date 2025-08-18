@@ -14,29 +14,23 @@ class Canvas {
     ctx.textAlign = "left";
 
     const objects = State.get("objects");
-    const selectedObjectId = State.get("selectedObjectId");
     const preview = State.get("draggingPreview");
 
     // --- Draw all objects (Lines and Polygons) ---
     objects.forEach((obj, index) => {
-      if (
-        preview &&
-        preview.originalObject &&
-        preview.originalObject.id === obj.id
-      ) {
+      if (preview && preview.originalObjects?.some((p) => p.id === obj.id)) {
         return; // Skip drawing the original object while its preview is being dragged
       }
 
-      const isSelected = obj.id === selectedObjectId;
+      const isSelected = State.isSelected(obj.id);
 
       if (obj.type === "poly") {
-        const { v, c, a, polyType, symbol, scale } = obj; // Get scale property
+        const { v, c, a, polyType, symbol, scale } = obj;
         ctx.save();
         ctx.translate(c.x, c.y);
         ctx.rotate((a * Math.PI) / 180);
-        ctx.scale(scale || 1, scale || 1); // Apply scale
+        ctx.scale(scale || 1, scale || 1);
 
-        // FIX: Use opaque colors
         let baseColor = "rgb(255, 255, 255)";
         if (polyType === "death") baseColor = "rgb(255, 0, 0)";
         else if (polyType === "bouncy") baseColor = "rgb(167, 196, 190)";
@@ -57,7 +51,6 @@ class Canvas {
 
         if (symbol && !State.get("hideUsernames")) {
           ctx.save();
-          // **FIX**: Add the index number to the polygon's label.
           const label = `${index + 1} ${symbol}`;
           ctx.fillStyle = isSelected ? "yellow" : "#ccc";
           ctx.strokeStyle = "black";
@@ -119,39 +112,39 @@ class Canvas {
     });
 
     // --- Draw Dragging Previews ---
-    if (preview && preview.object) {
-      ctx.save();
-      ctx.globalAlpha = 0.6;
-      ctx.strokeStyle = "yellow";
+    if (preview && preview.objects) {
+      preview.objects.forEach((p_obj) => {
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = "yellow";
 
-      if (preview.object.type === "line") {
-        const { start, end, height } = preview.object;
-        ctx.lineWidth = Math.max(1, Math.round(height ?? 4));
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
-      } else if (preview.object.type === "poly") {
-        const { v, c, a, scale } = preview.object; // Get scale property
-        ctx.translate(c.x, c.y);
-        ctx.rotate((a * Math.PI) / 180);
-        ctx.scale(scale || 1, scale || 1); // Apply scale to preview
-        ctx.lineWidth = 3;
+        if (p_obj.type === "line") {
+          const { start, end, height } = p_obj;
+          ctx.lineWidth = Math.max(1, Math.round(height ?? 4));
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.lineTo(end.x, end.y);
+          ctx.stroke();
+        } else if (p_obj.type === "poly") {
+          const { v, c, a, scale } = p_obj;
+          ctx.translate(c.x, c.y);
+          ctx.rotate((a * Math.PI) / 180);
+          ctx.scale(scale || 1, scale || 1);
+          ctx.lineWidth = 3;
+          ctx.fillStyle = "rgba(255, 255, 0, 0.5)";
 
-        // FIX: Add a yellow fill to the drag preview
-        ctx.fillStyle = "rgba(255, 255, 0, 0.5)"; // Semi-transparent yellow
+          ctx.beginPath();
+          ctx.moveTo(v[0].x, v[0].y);
+          for (let i = 1; i < v.length; i++) {
+            ctx.lineTo(v[i].x, v[i].y);
+          }
+          ctx.closePath();
 
-        ctx.beginPath();
-        ctx.moveTo(v[0].x, v[0].y);
-        for (let i = 1; i < v.length; i++) {
-          ctx.lineTo(v[i].x, v[i].y);
+          ctx.fill();
+          ctx.stroke();
         }
-        ctx.closePath();
-
-        ctx.fill(); // Fill the preview shape
-        ctx.stroke();
-      }
-      ctx.restore();
+        ctx.restore();
+      });
     }
 
     // --- Draw new shape in progress ---
@@ -166,7 +159,6 @@ class Canvas {
         ctx.lineTo(drawingShape.end.x, drawingShape.end.y);
         ctx.stroke();
         ctx.restore();
-        // canvas.js (in the "Draw new shape in progress" section for 'poly')
       } else if (
         drawingShape.type === "poly" &&
         drawingShape.vertices.length > 0
@@ -184,17 +176,17 @@ class Canvas {
         }
         ctx.stroke();
 
-        // **FIX**: This now correctly draws a dynamic line from the LAST vertex to the mouse.
-        const mouse = State.get("mouse");
-        ctx.beginPath();
-        ctx.moveTo(
-          vertices[vertices.length - 1].x,
-          vertices[vertices.length - 1].y,
-        );
-        ctx.lineTo(mouse.x, mouse.y);
-        ctx.stroke();
-
-        // **NOTE**: The incorrect preview line from the first vertex has been removed.
+        // **FIX**: Draw dynamic line from the LAST vertex to the mouse.
+        if (vertices.length > 0) {
+            const mouse = State.get("mouse");
+            ctx.beginPath();
+            ctx.moveTo(
+              vertices[vertices.length - 1].x,
+              vertices[vertices.length - 1].y,
+            );
+            ctx.lineTo(mouse.x, mouse.y);
+            ctx.stroke();
+        }
 
         // Draw starting point circle
         ctx.fillStyle = "cyan";
@@ -204,6 +196,28 @@ class Canvas {
 
         ctx.restore();
       }
+    }
+
+    // --- Draw Marquee Selection Box ---
+    const selectionBox = State.get("selectionBox");
+    if (selectionBox) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 150, 255, 0.2)";
+      ctx.strokeStyle = "rgba(0, 150, 255, 0.8)";
+      ctx.lineWidth = 1;
+      ctx.fillRect(
+        selectionBox.x,
+        selectionBox.y,
+        selectionBox.width,
+        selectionBox.height,
+      );
+      ctx.strokeRect(
+        selectionBox.x,
+        selectionBox.y,
+        selectionBox.width,
+        selectionBox.height,
+      );
+      ctx.restore();
     }
 
     // --- Draw Map Objects ---

@@ -376,3 +376,110 @@ export function handleUndoLastObject() {
     Network.deleteObject(myLastObject.id);
   }
 }
+
+// Add to utils-client.js (near the other exported helpers)
+
+function rectsIntersect(r1, r2) {
+  return !(
+    r2.x > r1.x + r1.width ||
+    r2.x + r2.width < r1.x ||
+    r2.y > r1.y + r1.height ||
+    r2.y + r2.height < r1.y
+  );
+}
+
+/**
+ * Returns whether the current player can select the object.
+ * Selection is allowed if:
+ * - object.playerId === current player's socketId
+ * OR
+ * - the object's owner is not present in the current lobby
+ */
+export function canSelectObject(objectId) {
+  if (!objectId) return false;
+  const objects = State.get("objects") || [];
+  const obj = objects.find((o) => o.id === objectId);
+  if (!obj) return false;
+
+  const lobby = State.get("players") || [];
+  const currentPlayerId = State.get("socketId");
+  const presentIds = new Set(lobby.map((p) => p.id));
+  const ownerId = obj.playerId;
+
+  // If no owner, allow selection
+  if (!ownerId) return true;
+
+  // Allow if I'm the owner or owner is not present
+  return ownerId === currentPlayerId || !presentIds.has(ownerId);
+}
+
+/**
+ * Returns true if the object's *visual* bounding box intersects the selection box.
+ * Works for 'poly' and 'line'. Selection box is {x,y,width,height}.
+ */
+export function isObjectInSelectionBox(obj, box) {
+  if (!obj || !box) return false;
+
+  // Helper: build axis-aligned bounding box for a polygon's absolute vertices
+  function polyAABB(poly) {
+    const c = poly.c || { x: 0, y: 0 };
+    const v = poly.v || [];
+    const s = poly.scale || 1;
+    const a = poly.a || 0;
+    const rad = (a * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+
+    for (let i = 0; i < v.length; i++) {
+      const vx = Number(v[i].x ?? v[i][0]);
+      const vy = Number(v[i].y ?? v[i][1]);
+      // apply scale
+      const sx = vx * s;
+      const sy = vy * s;
+      // rotate
+      const rx = sx * cos - sy * sin;
+      const ry = sx * sin + sy * cos;
+      // translate by center
+      const ax = rx + c.x;
+      const ay = ry + c.y;
+      if (ax < minX) minX = ax;
+      if (ay < minY) minY = ay;
+      if (ax > maxX) maxX = ax;
+      if (ay > maxY) maxY = ay;
+    }
+
+    if (minX === Infinity) return { x: c.x, y: c.y, width: 0, height: 0 };
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  // Helper: build axis-aligned bounding box for a line (including its height)
+  function lineAABB(line) {
+    const start = line.start || { x: 0, y: 0 };
+    const end = computeEnd(line) || line.end || start;
+    const h = typeof line.height === "number" ? line.height : 4;
+    const halfH = h / 2;
+
+    const minX = Math.min(start.x, end.x);
+    const minY = Math.min(start.y - halfH, end.y - halfH);
+    const maxX = Math.max(start.x, end.x);
+    const maxY = Math.max(start.y + halfH, end.y + halfH);
+
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  if (obj.type === "poly") {
+    const aabb = polyAABB(obj);
+    return rectsIntersect(aabb, box);
+  } else if (obj.type === "line") {
+    const aabb = lineAABB(obj);
+    return rectsIntersect(aabb, box);
+  }
+
+  // default: not selectable by marquee
+  return false;
+}

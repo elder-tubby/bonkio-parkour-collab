@@ -23,13 +23,15 @@ class State {
       gameActive: false,
       players: [],
 
-      // Unified object state
       objects: [],
-      selectedObjectId: null,
-      draggingPreview: null, // Used for both lines and polys
+      selectedObjectIds: [],
+      draggingPreview: null,
+      selectionBox: null,
+
+      // NEW: Drawing mode state
+      drawingMode: "line", // can be 'line', 'poly', or 'select'
 
       // State for drawing new shapes
-      isDrawingPoly: false,
       drawingShape: null, // { type: 'line', ... } or { type: 'poly', ... }
 
       // Canvas interaction state
@@ -42,7 +44,8 @@ class State {
 
       // Settings
       hideUsernames: false,
-      mapSize: 9, // default in range 1–13
+      isChatSoundOn: true,
+      mapSize: 9,
     };
     this.emitter = new Emitter();
   }
@@ -52,12 +55,43 @@ class State {
   }
 
   set(key, value) {
+    // Deprecated: Handle single vs multiple selection seamlessly
+    if (key === "selectedObjectId") {
+      this.set("selectedObjectIds", value ? [value] : []);
+      return;
+    }
+    // Deprecated: isDrawingPoly is now managed by drawingMode
+    if (key === "isDrawingPoly") {
+        this.set("drawingMode", value ? 'poly' : 'line');
+        return;
+    }
     this._state[key] = value;
     this.emitter.emit(key, value);
   }
 
+  // --- Helpers for multi-selection ---
+  addSelectedObjectId(id) {
+    if (!this._state.selectedObjectIds.includes(id)) {
+      this.set("selectedObjectIds", [...this._state.selectedObjectIds, id]);
+    }
+  }
+
+  removeSelectedObjectId(id) {
+    this.set(
+      "selectedObjectIds",
+      this._state.selectedObjectIds.filter((oid) => oid !== id),
+    );
+  }
+
+  clearSelectedObjects() {
+    this.set("selectedObjectIds", []);
+  }
+
+  isSelected(id) {
+    return this._state.selectedObjectIds.includes(id);
+  }
+
   onChange(fn) {
-    // fn will be called as fn(key, newValue)
     return this.emitter.on(fn);
   }
 }

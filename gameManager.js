@@ -94,7 +94,7 @@ class GameManager {
   }
 
   voteFinish(playerId, vote) {
-    if (!this.active || !(playerId in this.votes)) return;
+    if (!this.active || !this.participants.includes(playerId)) return;
     this.votes[playerId] = !!vote;
 
     const total = this.participants.length;
@@ -237,7 +237,7 @@ class GameManager {
     if (
       !payload?.id ||
       !this._canModifyObject(playerId, payload.id) ||
-      !this._allow(playerId, "update", 50)
+      !this._allow(playerId, `update:${payload.id}`, 50)
     )
       return;
 
@@ -269,20 +269,30 @@ class GameManager {
     if (payload.nudge && (payload.nudge.x || payload.nudge.y)) {
       const dx = (payload.nudge.x || 0) * 2;
       const dy = (payload.nudge.y || 0) * 2;
-      updatedLine.start = { x: updatedLine.start.x + dx, y: updatedLine.start.y + dy };
-      updatedLine.end = { x: updatedLine.end.x + dx, y: updatedLine.end.y + dy };
+      updatedLine.start = {
+        x: updatedLine.start.x + dx,
+        y: updatedLine.start.y + dy,
+      };
+      updatedLine.end = {
+        x: updatedLine.end.x + dx,
+        y: updatedLine.end.y + dy,
+      };
     }
     if (this._validPoint(payload.start) && this._validPoint(payload.end)) {
       updatedLine.start = payload.start;
       updatedLine.end = payload.end;
     }
-    if (payload.widthDelta) updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
-    if (payload.heightDelta) updatedLine.height = (updatedLine.height || 0) + payload.heightDelta;
-    if (payload.angleDelta) updatedLine.angle = (updatedLine.angle || 0) + payload.angleDelta;
+    if (payload.widthDelta)
+      updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
+    if (payload.heightDelta)
+      updatedLine.height = (updatedLine.height || 0) + payload.heightDelta;
+    if (payload.angleDelta)
+      updatedLine.angle = (updatedLine.angle || 0) + payload.angleDelta;
     if (typeof payload.width === "number") updatedLine.width = payload.width;
     if (typeof payload.height === "number") updatedLine.height = payload.height;
     if (typeof payload.angle === "number") updatedLine.angle = payload.angle;
-    if (typeof payload.lineType === "string") updatedLine.lineType = payload.lineType;
+    if (typeof payload.lineType === "string")
+      updatedLine.lineType = payload.lineType;
 
     updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width || 0));
     updatedLine.height = Math.max(1, Math.min(1000, updatedLine.height || 0));
@@ -292,7 +302,10 @@ class GameManager {
       const dx = updatedLine.end.x - updatedLine.start.x;
       const dy = updatedLine.end.y - updatedLine.start.y;
       updatedLine.width = Math.hypot(dx, dy);
-      updatedLine.angle = this._computeAngle(updatedLine.start, updatedLine.end);
+      updatedLine.angle = this._computeAngle(
+        updatedLine.start,
+        updatedLine.end,
+      );
     } else if (isResizing) {
       const center = {
         x: (currentLine.start.x + currentLine.end.x) / 2,
@@ -306,13 +319,12 @@ class GameManager {
       updatedLine.end = { x: center.x + halfX, y: center.y + halfY };
     }
 
-    const objIndex = this.objects.findIndex(o => o.id === updatedLine.id);
+    const objIndex = this.objects.findIndex((o) => o.id === updatedLine.id);
     if (objIndex !== -1) this.objects[objIndex] = updatedLine;
-    this.participants.forEach((id) => this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedLine));
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedLine),
+    );
   }
-
-  // gameManager.js
-  // gameManager.js
 
   _updatePolygon(currentPoly, payload) {
     let updatedPoly = { ...currentPoly };
@@ -324,25 +336,29 @@ class GameManager {
       };
     }
     if (this._validPoint(payload.c)) updatedPoly.c = payload.c;
-    if (payload.angleDelta) updatedPoly.a = (updatedPoly.a || 0) + payload.angleDelta;
+    if (payload.angleDelta)
+      updatedPoly.a = (updatedPoly.a || 0) + payload.angleDelta;
     if (typeof payload.a === "number") updatedPoly.a = payload.a;
-    if (typeof payload.polyType === "string") updatedPoly.polyType = payload.polyType;
+    if (typeof payload.polyType === "string")
+      updatedPoly.polyType = payload.polyType;
     updatedPoly.a = (((updatedPoly.a || 0) % 360) + 360) % 360;
 
-    // **FIX**: This corrects the calculation that caused the scale to snap back from its minimum value.
     if (payload.scaleDelta) {
-      const currentScale = typeof updatedPoly.scale === 'number' ? updatedPoly.scale : 1;
+      const currentScale =
+        typeof updatedPoly.scale === "number" ? updatedPoly.scale : 1;
       updatedPoly.scale = currentScale + payload.scaleDelta;
     }
     if (typeof payload.scale === "number") updatedPoly.scale = payload.scale;
 
     updatedPoly.scale = Math.max(0.1, Math.min(10, updatedPoly.scale || 1));
 
-    const objIndex = this.objects.findIndex(o => o.id === updatedPoly.id);
+    const objIndex = this.objects.findIndex((o) => o.id === updatedPoly.id);
     if (objIndex !== -1) this.objects[objIndex] = updatedPoly;
-    this.participants.forEach((id) => this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly));
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly),
+    );
   }
-  
+
   handleObjectReorder(playerId, { id, toBack }) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
       return;
@@ -359,16 +375,26 @@ class GameManager {
   }
 
   setSpawnCircle(playerId, { x, y }) {
-    if (!this._canPlayerAct(playerId) || !this._validCoord(x) || !this._validCoord(y)) return;
+    if (
+      !this._canPlayerAct(playerId) ||
+      !this._validCoord(x) ||
+      !this._validCoord(y)
+    )
+      return;
     this.spawnCircle = { ...this.spawnCircle, x, y };
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.SPAWN_CIRCLE_UPDATED, this.spawnCircle);
     });
   }
 
-  setCapZone(playerId, { x, y }) {
-    if (!this._canPlayerAct(playerId) || !this._validCoord(x) || !this._validCoord(y)) return;
-    this.capZone = { ...this.capZone, x, y };
+  setCapZone(playerId, { x, y, width, height }) {
+    if (!this._canPlayerAct(playerId)) return;
+    if (this._validCoord(x) && this._validCoord(y)) {
+      this.capZone = { ...this.capZone, x, y };
+    }
+    if (this._validCoord(width) && this._validCoord(height)) {
+      this.capZone = { ...this.capZone, width, height };
+    }
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.CAP_ZONE_UPDATED, this.capZone);
     });
@@ -381,30 +407,72 @@ class GameManager {
     this.spawnCircle.diameter = getSpawnDiameter(this.mapSize);
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.MAP_SIZE_UPDATED, clampedSize);
+      // Also update spawn circle since its diameter changed
+      this.io.to(id).emit(EVENTS.SPAWN_CIRCLE_UPDATED, this.spawnCircle);
     });
   }
 
   handlePasteLines(playerId, pasteData) {
-    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "paste", 3000)) return;
-    if (this.objects.length > 0) {
-      this.io.to(playerId).emit(EVENTS.CHAT_ERROR, "Cannot paste, objects already exist.");
+    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "paste", 3000))
       return;
-    }
-    if (!pasteData || !Array.isArray(pasteData.lines)) return;
+
+    if (!pasteData || !Array.isArray(pasteData.objects)) return;
 
     const player = this.lobby.players[playerId];
-    const newLines = [];
-    for (const line of pasteData.lines) {
-      if (!line || !this._validPoint(line.start) || !this._validPoint(line.end)) continue;
-      // Pasted lines are still created as 'line' type objects
-      newLines.push({ ...line, type: 'line', id: uuidv4(), symbol: " " });
+    const newObjects = [];
+    for (const objData of pasteData.objects) {
+      if (!objData) continue;
+
+      const base = {
+        id: uuidv4(),
+        playerId,
+        username: player.name,
+        symbol: " ", // Pasted objects have a blank symbol
+        createdAt: Date.now(),
+      };
+
+      if (
+        objData.type === "line" &&
+        this._validPoint(objData.start) &&
+        this._validPoint(objData.end)
+      ) {
+        const dx = objData.end.x - objData.start.x;
+        const dy = objData.end.y - objData.start.y;
+        newObjects.push({
+          ...base,
+          type: "line",
+          start: objData.start,
+          end: objData.end,
+          lineType: objData.lineType || "none",
+          width: Math.hypot(dx, dy),
+          height: objData.height || 4,
+          angle: this._computeAngle(objData.start, objData.end),
+        });
+      } else if (
+        objData.type === "poly" &&
+        this._validPoint(objData.c) &&
+        Array.isArray(objData.v)
+      ) {
+        newObjects.push({
+          ...base,
+          type: "poly",
+          c: objData.c,
+          v: objData.v,
+          a: objData.a || 0,
+          scale: objData.scale || 1,
+          polyType: objData.polyType || "none",
+        });
+      }
     }
 
-    if (newLines.length > 0) {
-      this.objects = newLines;
+    if (newObjects.length > 0) {
+      this.objects = newObjects;
       if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);
       if (pasteData.spawn && this._validPoint(pasteData.spawn))
         this.setSpawnCircle(playerId, pasteData.spawn);
+      if (pasteData.capZone) this.setCapZone(playerId, pasteData.capZone);
+
+      // Use OBJECTS_REORDERED to replace the entire map at once
       this.participants.forEach((id) => {
         this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
       });
@@ -429,6 +497,8 @@ class GameManager {
     if (!this._canPlayerAct(playerId)) return false;
     const object = this.objects.find((o) => o.id === objectId);
     if (!object) return false;
+    // Pasted maps are owned by no one initially, so anyone can edit.
+    if (object.symbol === " ") return true;
     const ownerIsPresent = this.participants.includes(object.playerId);
     return object.playerId === playerId || !ownerIsPresent;
   }
@@ -440,7 +510,8 @@ class GameManager {
     return pt && this._validCoord(pt.x) && this._validCoord(pt.y);
   }
   _computeAngle(start, end) {
-    const angle = Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
+    const angle =
+      Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
     return ((angle % 360) + 360) % 360;
   }
 }

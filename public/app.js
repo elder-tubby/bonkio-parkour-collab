@@ -49,12 +49,10 @@ function bindNetworkEvents() {
     UI.show("gameEndPopup");
     UI.showLobbyMessage("Drawing will start when 2 players are ready.");
   });
-  // Authoritative State Changes
   Network.onObjectCreated((newObject) => {
     State.set("objects", [...State.get("objects"), newObject]);
-    // Auto-select the newly-created object FOR THE CREATOR ONLY
     if (newObject.playerId === State.get("socketId")) {
-      State.set("selectedObjectId", newObject.id);
+      State.set("selectedObjectIds", [newObject.id]);
     }
   });
 
@@ -62,7 +60,6 @@ function bindNetworkEvents() {
     if (Array.isArray(newObjects) && newObjects.length > 0) {
       State.set("objects", [...State.get("objects"), ...newObjects]);
     }
-    // Per instructions, do NOT auto-select any of the new polygons.
   });
 
   Network.onObjectUpdated((updatedObject) => {
@@ -70,7 +67,9 @@ function bindNetworkEvents() {
       o.id === updatedObject.id ? updatedObject : o,
     );
     State.set("objects", objects);
-    if (State.get("selectedObjectId") === updatedObject.id) {
+    // Only update editor if this is the *only* selected object
+    const selectedIds = State.get("selectedObjectIds");
+    if (selectedIds.length === 1 && selectedIds[0] === updatedObject.id) {
       if (updatedObject.type === "line")
         UI.updateLineEditorValues(updatedObject);
       if (updatedObject.type === "poly")
@@ -83,8 +82,7 @@ function bindNetworkEvents() {
       "objects",
       State.get("objects").filter((o) => o.id !== id),
     );
-    if (State.get("selectedObjectId") === id)
-      State.set("selectedObjectId", null);
+    State.removeSelectedObjectId(id);
   });
 
   Network.onObjectsReordered((reorderedObjects) =>
@@ -95,7 +93,11 @@ function bindNetworkEvents() {
     State.set("spawnCircle", spawnCircle),
   );
   Network.onCapZoneUpdate((capZone) => State.set("capZone", capZone));
-  Network.onMapSizeUpdate((mapSize) => State.set("mapSize", mapSize));
+  Network.onMapSizeUpdate((mapSize) => {
+    State.set("mapSize", mapSize);
+    if (UI.elems.spawnSizeSlider) UI.elems.spawnSizeSlider.value = mapSize;
+    if (UI.elems.spawnSizeValue) UI.elems.spawnSizeValue.innerText = mapSize;
+  });
   Network.onChatMessage((msg) => UI.appendChat(msg));
   Network.onChatError((errorMsg) => showToast(errorMsg));
   Network.onClearChat(() => UI.clearChat());
@@ -119,16 +121,19 @@ function watchStateChanges() {
       "draggingPreview",
       "capZone",
       "spawnCircle",
-      "selectedObjectId",
+      "selectedObjectIds",
       "hideUsernames",
+      "selectionBox",
     ];
     if (visualKeys.includes(key)) scheduleDraw();
 
     switch (key) {
-      case "selectedObjectId":
-        const selectedId = State.get(key);
-        const object = State.get("objects").find((o) => o.id === selectedId);
-        UI.showObjectEditor(object); // Unified UI call
+      case "selectedObjectIds":
+        const selectedIds = State.get(key);
+        const selectedObjects = State.get("objects").filter((o) =>
+          selectedIds.includes(o.id),
+        );
+        UI.setObjectEditorVisible(selectedObjects);
         break;
       case "mapSize":
         const spawn = State.get("spawnCircle");
@@ -147,7 +152,6 @@ function initializeGameView(payload = {}) {
   const isParticipant = (payload.players || []).some((p) => p.id === myId);
 
   if (Array.isArray(payload.players) && !isParticipant) {
-    // Handle late joiner view
     return;
   }
 

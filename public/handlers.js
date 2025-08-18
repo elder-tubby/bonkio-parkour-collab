@@ -12,6 +12,8 @@ import {
   normalizeAngle,
   handleUndoLastObject,
   calculatePolygonCenter,
+  isObjectInSelectionBox,
+  canSelectObject,
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { splitConcaveIntoConvex } from "./splitConvex.js";
@@ -20,8 +22,9 @@ import { splitConcaveIntoConvex } from "./splitConvex.js";
 let isDraggingObject = false;
 let isDraggingSpawn = false;
 let isDraggingCapZone = false;
-let isDrawingLine = false;
+let isDrawing = false; // Generic flag for line or marquee
 let mouseMovedSinceDown = false;
+let mouseDownTime = 0;
 
 const keysDown = new Set();
 let nudgeLoopId = null;
@@ -33,21 +36,66 @@ function handleCanvasDown(e) {
   const point = pointFromEventOnCanvas(e);
   State.set("mouse", point);
   mouseMovedSinceDown = false;
+  mouseDownTime = Date.now();
+  const drawingMode = State.get("drawingMode");
 
-  // **FIX**: Prevent any object selection if a new shape is currently being drawn.
-  if (!State.get("drawingShape")) {
-    const hitObjectId = getHitObjectId(point, State.get("objects"));
-    if (hitObjectId) {
-      State.set("selectedObjectId", hitObjectId);
-      isDraggingObject = true;
-      const object = State.get("objects").find((o) => o.id === hitObjectId);
-      State.set("draggingPreview", {
-        mouseStart: point,
-        originalObject: object,
-        object: { ...object },
-      });
+  // Don't auto-clear selection for poly mode here; we need special behaviour:
+  if (!e.shiftKey && drawingMode !== "poly") {
+    State.clearSelectedObjects();
+  }
+
+  // If already drawing (adding vertices) then add the next point
+  if (State.get("drawingShape")) {
+    if (drawingMode === "poly") {
+      addPolygonPoint(point);
+    }
+    return;
+  }
+
+  const hitObjectId = getHitObjectId(point, State.get("objects"));
+
+  if (hitObjectId && canSelectObject(hitObjectId)) {
+    isDraggingObject = true;
+    if (e.shiftKey) {
+      if (State.isSelected(hitObjectId)) {
+        State.removeSelectedObjectId(hitObjectId);
+      } else {
+        State.addSelectedObjectId(hitObjectId);
+      }
+    } else if (!State.isSelected(hitObjectId)) {
+      State.set("selectedObjectIds", [hitObjectId]);
+    }
+
+    const selectedObjects = State.get("objects").filter((o) =>
+      State.isSelected(o.id),
+    );
+    State.set("draggingPreview", {
+      mouseStart: point,
+      originalObjects: selectedObjects.map((o) => ({ ...o })),
+    });
+    return;
+  }
+
+  // Click on empty canvas
+  if (!e.shiftKey) {
+    State.clearSelectedObjects();
+  }
+
+  // Click on empty canvas while in poly mode:
+  if (drawingMode === "poly") {
+    const selectedIds = State.get("selectedObjectIds") || [];
+    if (selectedIds.length > 0) {
+      // If an object is already selected, just deselect and DO NOT start drawing.
+      State.clearSelectedObjects();
       return;
     }
+
+    // Otherwise — start polygon drawing immediately on this single tap
+    State.set("drawingShape", { type: "poly", vertices: [point] });
+    UI.setStatus(
+      "Click to add points, close shape to finish, or 'X' to cancel.",
+    );
+    return;
   }
 
   const spawn = State.get("spawnCircle");
@@ -67,56 +115,66 @@ function handleCanvasDown(e) {
     return;
   }
 
-  if (State.get("isDrawingPoly")) {
-    const currentShape = State.get("drawingShape");
-    if (!currentShape || currentShape.type !== "poly") {
-      State.set("drawingShape", { type: "poly", vertices: [point] });
-      // **FEATURE**: Update status text when drawing begins.
-      UI.setStatus(
-        "Click to add points, close shape to finish, or 'X' to cancel.",
-      );
-    } else {
-      const vertices = currentShape.vertices;
-      if (vertices.length > 1 && distance(point, vertices[0]) < 10) {
-        if (vertices.length < 3) {
-          State.set("drawingShape", null);
-          UI.setStatus("Click on the canvas to start drawing a polygon.");
-
-          return;
-        }
-
-        const shapeToSplit = { v: vertices.map((p) => [p.x, p.y]) };
-        const convexPolygons = splitConcaveIntoConvex(shapeToSplit);
-
-        const polygonsToSend = convexPolygons.map((convexPoly) => {
-          const absoluteVertices = convexPoly.v.map((p) => ({
-            x: p[0],
-            y: p[1],
-          }));
-          const center = calculatePolygonCenter(absoluteVertices);
-          const relativeVertices = absoluteVertices.map((p) => ({
-            x: p.x - center.x,
-            y: p.y - center.y,
-          }));
-          return { v: relativeVertices, c: center };
-        });
-        Network.createObjectsBatch({ objects: polygonsToSend });
-
-        State.set("drawingShape", null);
-      } else {
-        const updatedVertices = [...vertices, point];
-        State.set("drawingShape", {
-          ...currentShape,
-          vertices: updatedVertices,
-        });
-      }
+  // Action on empty canvas depends on the current mode
+  if (drawingMode === "line" || drawingMode === "select") {
+    isDrawing = true;
+    State.set("startPt", point);
+    if (drawingMode === "select") {
+      State.set("selectionBox", {
+        x: point.x,
+        y: point.y,
+        width: 0,
+        height: 0,
+      });
     }
-    return;
+  } else if (drawingMode === "poly") {
+    // Defer starting polygon to handle brief clicks
   }
+}
 
-  State.set("selectedObjectId", null);
-  isDrawingLine = true;
-  State.set("startPt", point);
+function addPolygonPoint(point) {
+  const currentShape = State.get("drawingShape");
+  if (!currentShape || currentShape.type !== "poly") return;
+
+  // Clamp point to be within canvas boundaries
+  const canvas = UI.elems.canvas;
+  const clampedPoint = {
+    x: Math.max(0, Math.min(canvas.width, point.x)),
+    y: Math.max(0, Math.min(canvas.height, point.y)),
+  };
+
+  const vertices = currentShape.vertices;
+  // Check if closing the polygon
+  if (vertices.length > 1 && distance(clampedPoint, vertices[0]) < 10) {
+    if (vertices.length < 3) {
+      // Not enough vertices, cancel drawing
+      State.set("drawingShape", null);
+      UI.setStatus("Polygon cancelled. Click to start a new one.");
+      return;
+    }
+
+    // Finalize polygon
+    const shapeToSplit = { v: vertices.map((p) => [p.x, p.y]) };
+    const convexPolygons = splitConcaveIntoConvex(shapeToSplit);
+
+    const polygonsToSend = convexPolygons.map((convexPoly) => {
+      const absoluteVertices = convexPoly.v.map((p) => ({ x: p[0], y: p[1] }));
+      const center = calculatePolygonCenter(absoluteVertices);
+      const relativeVertices = absoluteVertices.map((p) => ({
+        x: p.x - center.x,
+        y: p.y - center.y,
+      }));
+      return { v: relativeVertices, c: center };
+    });
+    Network.createObjectsBatch({ objects: polygonsToSend });
+
+    State.set("drawingShape", null);
+    UI.setStatus("Click on the canvas to start drawing a polygon.");
+  } else {
+    // Add a new point
+    const updatedVertices = [...vertices, clampedPoint];
+    State.set("drawingShape", { ...currentShape, vertices: updatedVertices });
+  }
 }
 
 function handleCanvasMove(e) {
@@ -127,37 +185,8 @@ function handleCanvasMove(e) {
   }
   State.set("mouse", point);
 
-  // **FEATURE**: Hover Tooltip Logic
-  const tooltip = UI.elems.tooltip;
-  if (tooltip) {
-    const hoveredObject = getHoveredObject(point, State.get("objects"));
-    // Show tooltip only if hovering an object that is not currently selected
-    if (hoveredObject && hoveredObject.id !== State.get("selectedObjectId")) {
-      let tooltipText = "";
-      if (hoveredObject.type === "line") {
-        const { width, height, angle } = getLineProps(hoveredObject);
-        tooltipText = `Type:  Line
-  X:     ${hoveredObject.start.x.toFixed(1)}
-  Y:     ${hoveredObject.start.y.toFixed(1)}
-  W:     ${width.toFixed(1)}
-  H:     ${height.toFixed(1)}
-  Angle: ${normalizeAngle(angle).toFixed(1)}°`;
-      } else if (hoveredObject.type === "poly") {
-        tooltipText = `Type: Polygon
-  X:    ${hoveredObject.c.x.toFixed(1)}
-  Y:    ${hoveredObject.c.y.toFixed(1)}`;
-      }
-      tooltip.innerHTML = tooltipText;
-      tooltip.style.display = "block";
-      tooltip.style.left = `${e.clientX + 15}px`;
-      tooltip.style.top = `${e.clientY + 15}px`;
-    } else {
-      tooltip.style.display = "none";
-    }
-  }
-
-  if (State.get("isDrawingPoly") && State.get("drawingShape")) {
-    return; // Keep this to allow live preview line to work without other move logic interfering
+  if (State.get("drawingMode") === "poly" && State.get("drawingShape")) {
+    return;
   }
 
   if (isDraggingSpawn) {
@@ -174,51 +203,62 @@ function handleCanvasMove(e) {
     });
     return;
   }
+
   if (isDraggingObject) {
     const preview = State.get("draggingPreview");
-    if (!preview || !preview.object) return;
+    if (!preview || !preview.originalObjects) return;
     const dx = point.x - preview.mouseStart.x;
     const dy = point.y - preview.mouseStart.y;
-    let updatedObject;
-    if (preview.object.type === "poly") {
-      updatedObject = {
-        ...preview.originalObject,
-        c: {
-          x: preview.originalObject.c.x + dx,
-          y: preview.originalObject.c.y + dy,
-        },
-      };
-    } else {
-      // 'line'
-      updatedObject = {
-        ...preview.originalObject,
-        start: {
-          x: preview.originalObject.start.x + dx,
-          y: preview.originalObject.start.y + dy,
-        },
-        end: {
-          x: preview.originalObject.end.x + dx,
-          y: preview.originalObject.end.y + dy,
-        },
-      };
-    }
-    State.set("draggingPreview", { ...preview, object: updatedObject });
+
+    const updatedObjects = preview.originalObjects.map((originalObject) => {
+      let updatedObject;
+      if (originalObject.type === "poly") {
+        updatedObject = {
+          ...originalObject,
+          c: {
+            x: originalObject.c.x + dx,
+            y: originalObject.c.y + dy,
+          },
+        };
+      } else {
+        updatedObject = {
+          ...originalObject,
+          start: {
+            x: originalObject.start.x + dx,
+            y: originalObject.start.y + dy,
+          },
+          end: {
+            x: originalObject.end.x + dx,
+            y: originalObject.end.y + dy,
+          },
+        };
+      }
+      return updatedObject;
+    });
+
+    State.set("draggingPreview", { ...preview, objects: updatedObjects });
     return;
   }
-  if (isDrawingLine) {
+
+  if (isDrawing) {
     const startPt = State.get("startPt");
-    if (startPt) {
+    if (!startPt) return;
+
+    if (State.get("drawingMode") === "select") {
+      State.set("selectionBox", {
+        x: Math.min(startPt.x, point.x),
+        y: Math.min(startPt.y, point.y),
+        width: Math.abs(startPt.x - point.x),
+        height: Math.abs(startPt.y - point.y),
+      });
+    } else if (State.get("drawingMode") === "line") {
       State.set("drawingShape", { type: "line", start: startPt, end: point });
     }
   }
 }
 
-// handlers.js
-
 function handleCanvasUp(e) {
-  // **FIX**: The original code would 'return' here if isDrawingPoly was true,
-  // preventing the flags below from being reset. Removing the early return
-  // and letting the full function run fixes the "stuck object" bug.
+  const drawingMode = State.get("drawingMode");
 
   if (isDraggingSpawn) {
     const spawn = State.get("spawnCircle");
@@ -230,20 +270,37 @@ function handleCanvasUp(e) {
   }
   if (isDraggingObject) {
     const preview = State.get("draggingPreview");
-    if (preview && preview.object && mouseMovedSinceDown) {
-      const { id, type } = preview.originalObject;
-      let payload = { id };
-      if (type === "poly") payload.c = preview.object.c;
-      if (type === "line") {
-        payload.start = preview.object.start;
-        payload.end = preview.object.end;
-      }
-      Network.updateObject(payload);
+    if (preview && preview.objects && mouseMovedSinceDown) {
+      preview.objects.forEach((obj) => {
+        let payload = { id: obj.id };
+        if (obj.type === "poly") payload.c = obj.c;
+        if (obj.type === "line") {
+          payload.start = obj.start;
+          payload.end = obj.end;
+        }
+        Network.updateObject(payload);
+      });
     }
   }
 
-  // This check prevents a new line from being created upon finishing a polygon click.
-  if (isDrawingLine && !State.get("isDrawingPoly")) {
+  if (isDrawing && drawingMode === "select" && mouseMovedSinceDown) {
+    const selectionBox = State.get("selectionBox");
+    const allObjects = State.get("objects");
+    const idsToSelect = allObjects
+      .filter(
+        (obj) =>
+          canSelectObject(obj.id) && isObjectInSelectionBox(obj, selectionBox),
+      )
+      .map((obj) => obj.id);
+
+    if (e.shiftKey) {
+      idsToSelect.forEach((id) => State.addSelectedObjectId(id));
+    } else {
+      State.set("selectedObjectIds", idsToSelect);
+    }
+  }
+
+  if (isDrawing && drawingMode === "line") {
     const startPt = State.get("startPt");
     const endPt = State.get("mouse");
     if (startPt && distance(startPt, endPt) > 5) {
@@ -251,26 +308,30 @@ function handleCanvasUp(e) {
     }
   }
 
-  // This cleanup logic now runs correctly in all cases.
+  // Cleanup
   isDraggingObject = false;
   isDraggingSpawn = false;
   isDraggingCapZone = false;
-  isDrawingLine = false;
+  isDrawing = false;
   State.set("startPt", null);
-  // We avoid clearing the drawingShape for polygons, as it's managed by sequential clicks.
-  if (!State.get("isDrawingPoly")) {
-    State.set("drawingShape", null);
-  }
+  State.set("selectionBox", null);
   State.set("draggingPreview", null);
+  State.set(
+    "drawingShape",
+    State.get("drawingShape")?.type === "poly"
+      ? State.get("drawingShape")
+      : null,
+  );
 }
+
 // --- Keyboard Handlers ---
 
 function startNudgeLoop() {
   if (nudgeLoopId) return;
 
   const nudgeLoop = () => {
-    const selectedId = State.get("selectedObjectId");
-    if (!selectedId || keysDown.size === 0) {
+    const selectedIds = State.get("selectedObjectIds");
+    if (selectedIds.length === 0 || keysDown.size === 0) {
       stopNudgeLoop();
       return;
     }
@@ -282,9 +343,10 @@ function startNudgeLoop() {
     if (keysDown.has("ArrowRight")) nudge.x += 1;
 
     if (nudge.x !== 0 || nudge.y !== 0) {
-      Network.updateObject({ id: selectedId, nudge });
+      selectedIds.forEach((id) => {
+        Network.updateObject({ id, nudge });
+      });
     }
-
     nudgeLoopId = requestAnimationFrame(nudgeLoop);
   };
   nudgeLoopId = requestAnimationFrame(nudgeLoop);
@@ -308,55 +370,91 @@ function handleKeyDown(e) {
   const active = document.activeElement;
   if (active && (active.tagName === "INPUT" || active.tagName === "SELECT"))
     return;
-
   if (!State.get("gameActive")) return;
 
   const key = e.key.toLowerCase();
+  const selectedIds = State.get("selectedObjectIds");
+  // Quick toggle for draw mode (M) — delegate to button handler
+  if (key === "m") {
+    const btn = UI.elems.drawModeBtn;
+    if (btn) btn.click();
+    return;
+  }
+  // General hotkeys
+  switch (key) {
+    case "enter":
+      if (document.activeElement !== UI.elems.chatInput) {
+        e.preventDefault();
+        UI.elems.chatInput.focus();
+      }
+      return;
+      if (isDrawing && drawingMode === "select" && mouseMovedSinceDown) {
+        const selectionBox = State.get("selectionBox");
+        const allObjects = State.get("objects");
+        const idsToSelect = allObjects
+          .filter(
+            (obj) =>
+              canSelectObject(obj.id) &&
+              isObjectInSelectionBox(obj, selectionBox),
+          )
+          .map((obj) => obj.id);
 
-  // FIX: Cancel polygon drawing with 'x'
-  if (key === "x" && State.get("isDrawingPoly") && State.get("drawingShape")) {
-    e.preventDefault();
-    State.set("drawingShape", null);
-    UI.setStatus("Click to start drawing a new polygon.");
-    return;
-  }
-  const selectedId = State.get("selectedObjectId");
+        if (e.shiftKey) {
+          idsToSelect.forEach((id) => State.addSelectedObjectId(id));
+        } else {
+          State.set("selectedObjectIds", idsToSelect);
+        }
+      }
 
-  const chatInput = UI.elems.chatInput;
-  if (key === "enter" && document.activeElement !== chatInput) {
-    e.preventDefault();
-    chatInput.focus();
-    return;
-  }
-  if (key === "p") {
-    e.preventDefault();
-    UI.elems.drawPolyBtn?.click();
-    return;
-  }
-  if (key === "z" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    handleUndoLastObject(); // Call to undefined function, assuming it exists
-    return;
-  }
-  if (key === "h") {
-    e.preventDefault();
-    const checkbox = UI.elems.hideUsernamesCheckbox;
-    if (checkbox) {
-      checkbox.checked = !checkbox.checked;
-      State.set("hideUsernames", checkbox.checked);
-    }
-    return;
-  }
-  if (key === "c") {
-    copyLineInfo(State.get("objects"));
-    return;
+      if (isDrawing && drawingMode === "line") {
+        const startPt = State.get("startPt");
+        const endPt = State.get("mouse");
+        if (startPt && distance(startPt, endPt) > 5) {
+          Network.createObject({ start: startPt, end: endPt });
+        }
+      }
+
+    case "z":
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        handleUndoLastObject();
+      }
+      return;
+    case "h":
+      e.preventDefault();
+      const checkbox = UI.elems.hideUsernamesCheckbox;
+      if (checkbox) {
+        checkbox.checked = !checkbox.checked;
+        State.set("hideUsernames", checkbox.checked);
+      }
+      return;
+    case "c":
+      if (e.metaKey || e.ctrlKey) {
+        copyLineInfo();
+      }
+      return;
+    case "v":
+      if (e.metaKey || e.ctrlKey) {
+        pasteLines();
+      }
+      return;
+    case "x":
+      if (State.get("drawingMode") === "poly" && State.get("drawingShape")) {
+        e.preventDefault();
+        State.set("drawingShape", null);
+        UI.setStatus("Click to start drawing a new polygon.");
+      }
+      break;
   }
 
-  if (!selectedId) return;
-  const object = State.get("objects").find((o) => o.id === selectedId);
-  if (!object) return;
+  if (selectedIds.length === 0) return;
 
-  // Nudge
+  // Hotkeys for selected objects
+  const objects = State.get("objects").filter((o) =>
+    selectedIds.includes(o.id),
+  );
+  if (objects.length === 0) return;
+
   if (e.key.startsWith("Arrow") && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     keysDown.add(e.key);
@@ -364,99 +462,120 @@ function handleKeyDown(e) {
     return;
   }
 
-  if (object.type === "poly") {
-    // Angle
-    if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
-      e.preventDefault();
-      const step = e.ctrlKey ? 10 : 1;
-      const delta = key === "arrowleft" ? -step : step;
-      Network.updateObject({ id: selectedId, angleDelta: delta });
-      return;
-    }
-    // Scale
-    if (e.altKey && (key === "arrowup" || key === "arrowdown")) {
-      e.preventDefault();
-      // **FIX**: Add a client-side guard to respect the new max scale value.
-      if (key === "arrowup" && object.scale >= 5) return;
-      const delta = key === "arrowup" ? 0.1 : -0.1; // Server expects a small delta
-      Network.updateObject({ id: selectedId, scaleDelta: delta });
-      return;
-    }
-    switch (key) {
-      case "b":
-        Network.updateObject({
-          id: selectedId,
-          polyType: object.polyType === "bouncy" ? "none" : "bouncy",
-        });
-        break;
-      case "d":
-        Network.updateObject({
-          id: selectedId,
-          polyType: object.polyType === "death" ? "none" : "death",
-        });
-        break;
-      case "n":
-        Network.updateObject({ id: selectedId, polyType: "none" });
-        break;
-      case "x":
-      case "delete":
-      case "backspace":
-        Network.deleteObject(selectedId);
-        break;
-    }
-  } else if (object.type === "line") {
-    // Width/Height
-    if (e.altKey && e.key.startsWith("Arrow")) {
-      e.preventDefault();
-      const step = e.shiftKey ? 10 : 1;
-      if (key === "arrowleft" || key === "arrowright") {
-        const delta = key === "arrowleft" ? -step : step;
-        Network.updateObject({ id: selectedId, widthDelta: delta });
-      } else if (key === "arrowup" || key === "arrowdown") {
-        const delta = key === "arrowup" ? step : -step;
-        Network.updateObject({ id: selectedId, heightDelta: delta });
-      }
-      return;
-    }
-    // Angle
-    if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
-      e.preventDefault();
-      const step = e.ctrlKey ? 10 : 1;
-      const delta = key === "arrowleft" ? -step : step;
-      Network.updateObject({ id: selectedId, angleDelta: delta });
-      return;
-    }
-    switch (key) {
-      case "b":
-        Network.updateObject({
-          id: selectedId,
-          lineType: object.lineType === "bouncy" ? "none" : "bouncy",
-        });
-        break;
-      case "d":
-        Network.updateObject({
-          id: selectedId,
-          lineType: object.lineType === "death" ? "none" : "death",
-        });
-        break;
-      case "n":
-        Network.updateObject({ id: selectedId, lineType: "none" });
-        break;
-      case "x":
-      case "delete":
-      case "backspace":
-        Network.deleteObject(selectedId);
-        break;
-    }
+  if (key === "[") {
+    e.preventDefault();
+    selectedIds.forEach((id) => Network.reorderObject({ id, toBack: true }));
+    return;
   }
+  if (key === "]") {
+    e.preventDefault();
+    selectedIds.forEach((id) => Network.reorderObject({ id, toBack: false }));
+    return;
+  }
+
+  // Type and transform hotkeys
+  const isMultiSelect = selectedIds.length > 1;
+
+  objects.forEach((object) => {
+    const id = object.id;
+    if (object.type === "poly") {
+      if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
+        e.preventDefault();
+        const step = e.ctrlKey ? 10 : 1;
+        const delta = key === "arrowleft" ? -step : step;
+        Network.updateObject({ id, angleDelta: delta });
+      } else if (e.altKey && (key === "arrowup" || key === "arrowdown")) {
+        e.preventDefault();
+        if (key === "arrowup" && object.scale >= 5) return;
+        const delta = key === "arrowup" ? 0.1 : -0.1;
+        Network.updateObject({ id, scaleDelta: delta });
+      } else {
+        switch (key) {
+          case "b":
+            Network.updateObject({
+              id,
+              polyType: isMultiSelect
+                ? "bouncy"
+                : object.polyType === "bouncy"
+                  ? "none"
+                  : "bouncy",
+            });
+            break;
+          case "d":
+            Network.updateObject({
+              id,
+              polyType: isMultiSelect
+                ? "death"
+                : object.polyType === "death"
+                  ? "none"
+                  : "death",
+            });
+            break;
+          case "n":
+            Network.updateObject({ id, polyType: "none" });
+            break;
+          case "x":
+          case "delete":
+          case "backspace":
+            Network.deleteObject(id);
+            break;
+        }
+      }
+    } else if (object.type === "line") {
+      if (e.altKey && e.key.startsWith("Arrow")) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        if (key === "arrowleft" || key === "arrowright") {
+          const delta = key === "arrowleft" ? -step : step;
+          Network.updateObject({ id, widthDelta: delta });
+        } else if (key === "arrowup" || key === "arrowdown") {
+          const delta = key === "arrowup" ? step : -step;
+          Network.updateObject({ id, heightDelta: delta });
+        }
+      } else if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
+        e.preventDefault();
+        const step = e.ctrlKey ? 10 : 1;
+        const delta = key === "arrowleft" ? -step : step;
+        Network.updateObject({ id, angleDelta: delta });
+      } else {
+        switch (key) {
+          case "b":
+            Network.updateObject({
+              id,
+              lineType: isMultiSelect
+                ? "bouncy"
+                : object.lineType === "bouncy"
+                  ? "none"
+                  : "bouncy",
+            });
+            break;
+          case "d":
+            Network.updateObject({
+              id,
+              lineType: isMultiSelect
+                ? "death"
+                : object.lineType === "death"
+                  ? "none"
+                  : "death",
+            });
+            break;
+          case "n":
+            Network.updateObject({ id, lineType: "none" });
+            break;
+          case "x":
+          case "delete":
+          case "backspace":
+            Network.deleteObject(id);
+            break;
+        }
+      }
+    }
+  });
 }
+
 function createSliderHandlerFactory(elems) {
   return (propName, type) => {
     const isPoly = type === "poly";
-
-    // UI uses "angle" in ids (polyAngleSlider / polyAngleValue),
-    // but server side uses property "a" for polygon angle.
-    // Use uiProp for building DOM keys, keep propName for payload.
     const uiProp = propName === "a" ? "angle" : propName;
     const capitalized = uiProp.charAt(0).toUpperCase() + uiProp.slice(1);
     const prefix = isPoly ? `poly${capitalized}` : `line${capitalized}`;
@@ -469,19 +588,19 @@ function createSliderHandlerFactory(elems) {
 
     const handleInput = () => {
       if (valueLabel) valueLabel.innerText = slider.value;
-      const id = State.get("selectedObjectId");
-      if (!id) return;
+      const selectedIds = State.get("selectedObjectIds");
+      if (selectedIds.length === 0) return;
 
       let parsed = parseFloat(slider.value);
-
-      // FIX: Normalize scale value from slider (10-1000) back to server range (0.1-10)
       if (propName === "scale") {
         parsed = parsed / 100.0;
       }
 
-      const payload = { id };
+      const payload = {};
       payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
-      Network.updateObject(payload);
+      selectedIds.forEach((id) => {
+        Network.updateObject({ id, ...payload });
+      });
     };
 
     slider.addEventListener("input", handleInput);
@@ -524,20 +643,6 @@ export function bindUIEvents() {
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("keyup", handleKeyUp);
 
-  safeAddEvent(e.drawPolyBtn, "click", () => {
-    const isDrawing = !State.get("isDrawingPoly");
-    State.set("isDrawingPoly", isDrawing);
-    e.drawPolyBtn.textContent = `Draw Polygon (${isDrawing ? "ON" : "OFF"})`;
-    e.drawPolyBtn.style.backgroundColor = isDrawing ? "#4CAF50" : "";
-    State.set("selectedObjectId", null);
-    State.set("drawingShape", null);
-    if (isDrawing) {
-      UI.setStatus("Click on the canvas to start drawing a polygon.");
-    } else {
-      UI.setStatus("Draw by dragging on canvas");
-    }
-  });
-
   const sliderHandler = createSliderHandlerFactory(e);
   sliderHandler("width", "line");
   sliderHandler("height", "line");
@@ -545,40 +650,42 @@ export function bindUIEvents() {
   sliderHandler("a", "poly"); // 'a' is for angle
   sliderHandler("scale", "poly");
 
-  safeAddEvent(e.lineTypeSelect, "change", (ev) => {
-    const id = State.get("selectedObjectId");
-    if (id) Network.updateObject({ id, lineType: ev.target.value });
-  });
-  safeAddEvent(e.deleteLineBtn, "click", () => {
-    const id = State.get("selectedObjectId");
-    if (id) Network.deleteObject(id);
-  });
-  safeAddEvent(e.polyTypeSelect, "change", (ev) => {
-    const id = State.get("selectedObjectId");
-    if (id) Network.updateObject({ id, polyType: ev.target.value });
-  });
-  safeAddEvent(e.deletePolyBtn, "click", () => {
-    const id = State.get("selectedObjectId");
-    if (id) Network.deleteObject(id);
-  });
+  const createSelectHandler = (type) => (ev) => {
+    const selectedIds = State.get("selectedObjectIds");
+    const propName = type === "line" ? "lineType" : "polyType";
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => {
+        Network.updateObject({ id, [propName]: ev.target.value });
+      });
+    }
+  };
 
-  safeAddEvent(e.toFrontBtn, "click", () =>
-    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: false }),
-  );
-  safeAddEvent(e.toBackBtn, "click", () =>
-    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: true }),
-  );
-  safeAddEvent(e.polyToFrontBtn, "click", () =>
-    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: false }),
-  );
-  safeAddEvent(e.polyToBackBtn, "click", () =>
-    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: true }),
-  );
+  safeAddEvent(e.lineTypeSelect, "change", createSelectHandler("line"));
+  safeAddEvent(e.polyTypeSelect, "change", createSelectHandler("poly"));
 
-  safeAddEvent(e.copyLineInfoBtn, "click", () =>
-    copyLineInfo(State.get("objects")),
-  );
-  safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo(State.get("objects")));
+  const createDeleteHandler = () => () => {
+    const selectedIds = State.get("selectedObjectIds");
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => Network.deleteObject(id));
+    }
+  };
+
+  safeAddEvent(e.deleteLineBtn, "click", createDeleteHandler());
+  safeAddEvent(e.deletePolyBtn, "click", createDeleteHandler());
+
+  const createReorderHandler = (toBack) => () => {
+    const selectedIds = State.get("selectedObjectIds");
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => Network.reorderObject({ id, toBack }));
+    }
+  };
+
+  safeAddEvent(e.toFrontBtn, "click", createReorderHandler(false));
+  safeAddEvent(e.toBackBtn, "click", createReorderHandler(true));
+  safeAddEvent(e.polyToFrontBtn, "click", createReorderHandler(false));
+  safeAddEvent(e.polyToBackBtn, "click", createReorderHandler(true));
+
+  safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo());
   safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
 
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
@@ -590,6 +697,23 @@ export function bindUIEvents() {
     Network.setMapSize(size);
   });
   safeAddEvent(e.popupCloseBtn, "click", () => UI.hide("gameEndPopup"));
+
+  safeAddEvent(e.drawModeBtn, "click", () => {
+    const modes = ["line", "poly", "select"];
+    const currentMode = State.get("drawingMode") || "line";
+    const nextIndex = (modes.indexOf(currentMode) + 1) % modes.length;
+    const nextMode = modes[nextIndex];
+    State.set("drawingMode", nextMode);
+    e.drawModeBtn.textContent = `Mode: ${nextMode.charAt(0).toUpperCase() + nextMode.slice(1)} (M)`;
+
+    State.clearSelectedObjects();
+    State.set("drawingShape", null);
+  });
+
+  safeAddEvent(e.chatAudioBtn, "click", () => {
+    const isSoundOn = !State.get("isChatSoundOn");
+    State.set("isChatSoundOn", isSoundOn);
+  });
 }
 
 function safeAddEvent(elem, eventName, handler) {
