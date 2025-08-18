@@ -13,37 +13,81 @@ class Canvas {
     ctx.fillStyle = "white";
     ctx.textAlign = "left";
 
-    const computeEnd = (line) => {
-      if (typeof line.width === "number" && typeof line.angle === "number") {
-        const r = (line.angle * Math.PI) / 180;
-        return {
-          x: line.start.x + Math.cos(r) * line.width,
-          y: line.start.y + Math.sin(r) * line.width,
-        };
+    const objects = State.get("objects");
+    const selectedObjectId = State.get("selectedObjectId");
+    const preview = State.get("draggingPreview");
+
+    // --- Draw all objects (Lines and Polygons) ---
+    objects.forEach((obj, index) => {
+      if (
+        preview &&
+        preview.originalObject &&
+        preview.originalObject.id === obj.id
+      ) {
+        return; // Skip drawing the original object while its preview is being dragged
       }
-      return line.end;
-    };
 
-    // Draw all committed lines from the main state
-    const lines = State.get("lines");
-    lines.forEach(
-      ({ id, start, end, symbol, type, width, height, angle }, index) => {
-        // Don't draw the original version of the line being dragged
-        const preview = State.get("draggingPreview");
-        if (preview && preview.originalLine.id === id) {
-          return;
+      const isSelected = obj.id === selectedObjectId;
+
+      if (obj.type === "poly") {
+        const { v, c, a, polyType, symbol, scale } = obj; // Get scale property
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate((a * Math.PI) / 180);
+        ctx.scale(scale || 1, scale || 1); // Apply scale
+
+        // FIX: Use opaque colors
+        let baseColor = "rgb(255, 255, 255)";
+        if (polyType === "death") baseColor = "rgb(255, 0, 0)";
+        else if (polyType === "bouncy") baseColor = "rgb(167, 196, 190)";
+        ctx.fillStyle = baseColor;
+
+        ctx.beginPath();
+        ctx.moveTo(v[0].x, v[0].y);
+        for (let i = 1; i < v.length; i++) {
+          ctx.lineTo(v[i].x, v[i].y);
         }
+        ctx.closePath();
+        ctx.fill();
 
-        const isSelected = id === State.get("selectedLineId");
+        ctx.strokeStyle = isSelected ? "yellow" : "white";
+        ctx.lineWidth = isSelected ? 3 : 1;
+        ctx.stroke();
+        ctx.restore();
+
+        if (symbol && !State.get("hideUsernames")) {
+          ctx.save();
+          // **FIX**: Add the index number to the polygon's label.
+          const label = `${index + 1} ${symbol}`;
+          ctx.fillStyle = isSelected ? "yellow" : "#ccc";
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 3;
+          ctx.strokeText(label, c.x, c.y);
+          ctx.fillText(label, c.x, c.y);
+          ctx.restore();
+        }
+      } else if (obj.type === "line") {
+        const { start, end, symbol, lineType, width, height, angle } = obj;
+        const computeEnd = (line) => {
+          if (
+            typeof line.width === "number" &&
+            typeof line.angle === "number"
+          ) {
+            const r = (line.angle * Math.PI) / 180;
+            return {
+              x: line.start.x + Math.cos(r) * line.width,
+              y: line.start.y + Math.sin(r) * line.width,
+            };
+          }
+          return line.end;
+        };
+
         const drawEnd = computeEnd({ start, end, width, angle });
         let baseColor = "white";
-        if (type === "death") baseColor = "red";
-        else if (type === "bouncy") baseColor = `rgb(168, 162, 158)`;
+        if (lineType === "death") baseColor = "red";
+        else if (lineType === "bouncy") baseColor = `rgb(167, 196, 190)`;
 
-        const visualThickness = Math.max(
-          1,
-          Math.min(1000, Math.round(height ?? 4)),
-        );
+        const visualThickness = Math.max(1, Math.round(height ?? 4));
 
         ctx.save();
         if (isSelected) {
@@ -71,42 +115,98 @@ class Canvas {
           ctx.fillText(label, start.x + 5, start.y - 5);
         }
         ctx.restore();
-      },
-    );
+      }
+    });
 
-    // --- FIX for Dragging Preview (Problem 1) ---
-    // If a line is being dragged, draw its temporary position.
-    const preview = State.get("draggingPreview");
-    if (preview && preview.line) {
-      const { start, end } = preview.line;
+    // --- Draw Dragging Previews ---
+    if (preview && preview.object) {
       ctx.save();
-      ctx.globalAlpha = 0.6; // Make it slightly transparent
+      ctx.globalAlpha = 0.6;
       ctx.strokeStyle = "yellow";
-      ctx.lineWidth = Math.max(
-        1,
-        Math.min(1000, Math.round(preview.line.height ?? 4)),
-      );
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
+
+      if (preview.object.type === "line") {
+        const { start, end, height } = preview.object;
+        ctx.lineWidth = Math.max(1, Math.round(height ?? 4));
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+      } else if (preview.object.type === "poly") {
+        const { v, c, a, scale } = preview.object; // Get scale property
+        ctx.translate(c.x, c.y);
+        ctx.rotate((a * Math.PI) / 180);
+        ctx.scale(scale || 1, scale || 1); // Apply scale to preview
+        ctx.lineWidth = 3;
+
+        // FIX: Add a yellow fill to the drag preview
+        ctx.fillStyle = "rgba(255, 255, 0, 0.5)"; // Semi-transparent yellow
+
+        ctx.beginPath();
+        ctx.moveTo(v[0].x, v[0].y);
+        for (let i = 1; i < v.length; i++) {
+          ctx.lineTo(v[i].x, v[i].y);
+        }
+        ctx.closePath();
+
+        ctx.fill(); // Fill the preview shape
+        ctx.stroke();
+      }
       ctx.restore();
     }
 
-    // Draw preview for a new line being created
-    const currentLine = State.get("currentLine");
-    if (currentLine) {
-      ctx.save();
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(currentLine.start.x, currentLine.start.y);
-      ctx.lineTo(currentLine.end.x, currentLine.end.y);
-      ctx.stroke();
-      ctx.restore();
+    // --- Draw new shape in progress ---
+    const drawingShape = State.get("drawingShape");
+    if (drawingShape) {
+      if (drawingShape.type === "line") {
+        ctx.save();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(drawingShape.start.x, drawingShape.start.y);
+        ctx.lineTo(drawingShape.end.x, drawingShape.end.y);
+        ctx.stroke();
+        ctx.restore();
+        // canvas.js (in the "Draw new shape in progress" section for 'poly')
+      } else if (
+        drawingShape.type === "poly" &&
+        drawingShape.vertices.length > 0
+      ) {
+        const { vertices } = drawingShape;
+        ctx.save();
+        ctx.strokeStyle = "cyan";
+        ctx.lineWidth = 2;
+
+        // Draw existing segments
+        ctx.beginPath();
+        ctx.moveTo(vertices[0].x, vertices[0].y);
+        for (let i = 1; i < vertices.length; i++) {
+          ctx.lineTo(vertices[i].x, vertices[i].y);
+        }
+        ctx.stroke();
+
+        // **FIX**: This now correctly draws a dynamic line from the LAST vertex to the mouse.
+        const mouse = State.get("mouse");
+        ctx.beginPath();
+        ctx.moveTo(
+          vertices[vertices.length - 1].x,
+          vertices[vertices.length - 1].y,
+        );
+        ctx.lineTo(mouse.x, mouse.y);
+        ctx.stroke();
+
+        // **NOTE**: The incorrect preview line from the first vertex has been removed.
+
+        // Draw starting point circle
+        ctx.fillStyle = "cyan";
+        ctx.beginPath();
+        ctx.arc(vertices[0].x, vertices[0].y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        ctx.restore();
+      }
     }
 
-    // Draw shared spawn circle
+    // --- Draw Map Objects ---
     const spawnCircle = State.get("spawnCircle");
     if (spawnCircle) {
       const { x, y, diameter } = spawnCircle;
@@ -121,7 +221,6 @@ class Canvas {
       ctx.fillText("spawn", x, y + diameter / 2 + 12);
     }
 
-    // Draw capture zone
     const capZone = State.get("capZone");
     if (capZone && capZone.x !== null) {
       const { x, y, width, height } = capZone;

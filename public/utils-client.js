@@ -18,64 +18,98 @@ function computeEnd(line) {
 }
 
 /**
- * point-to-segment distance (not squared)
+ * A helper function to check if a point is inside a polygon using the ray-casting algorithm.
+ * @param {{x, y}} point The point to check.
+ * @param {[{x, y}]} vertices The vertices of the polygon.
+ * @returns {boolean} True if the point is inside the polygon.
  */
-function pointToSegmentDistance(p, a, b) {
-  const vx = b.x - a.x;
-  const vy = b.y - a.y;
-  const wx = p.x - a.x;
-  const wy = p.y - a.y;
-  const c1 = vx * wx + vy * wy;
-  if (c1 <= 0) return Math.hypot(wx, wy);
-  const c2 = vx * vx + vy * vy;
-  if (c2 <= c1) return Math.hypot(p.x - b.x, p.y - b.y);
-  const t = c1 / c2;
-  const projx = a.x + t * vx;
-  const projy = a.y + t * vy;
-  return Math.hypot(p.x - projx, p.y - projy);
+function isPointInPolygon(point, vertices) {
+  let isInside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x,
+      yi = vertices[i].y;
+    const xj = vertices[j].x,
+      yj = vertices[j].y;
+
+    const intersect =
+      yi > point.y !== yj > point.y &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+    if (intersect) isInside = !isInside;
+  }
+  return isInside;
 }
 
-export function getHitLineId(point) {
-  const lines = State.get("lines") || [];
-  // --- FIX --- Use the correct state property 'players'
-  const lobby = State.get("players") || [];
-  // --- FIX --- Use 'socketId' for the current player's ID for consistency
-  const currentPlayerId = State.get("socketId");
-  const presentIds = new Set(lobby.map((p) => p.id));
+/**
+ * Determines which object (line or polygon) was hit by a mouse click.
+ * Iterates objects in reverse to select the top-most one first.
+ * @param {{x, y}} point The coordinates of the mouse click.
+ * @param {Array<Object>} objects The array of all line and polygon objects.
+ * @returns {string|null} The ID of the hit object, or null if none was hit.
+ */
+export function getHitObjectId(point, objects) {
+  // Iterate backwards to check top-most objects first
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i];
+    const lobby = State.get("players") || [];
+    // --- FIX --- Use 'socketId' for the current player's ID for consistency
+    const currentPlayerId = State.get("socketId");
+    
+    const presentIds = new Set(lobby.map((p) => p.id));
 
-  // Iterate from top-most rendered line to bottom
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    const start = line.start;
-    const end = computeEnd(line);
+    const ownerId = obj.playerId;
+    const ownerPresent = presentIds.has(ownerId);
+    if (obj.type === "poly") {
+      const { c, v, a } = obj;
 
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const length = Math.hypot(dx, dy);
+      // Perform inverse transformation on the click point
+      const angleRad = -a * (Math.PI / 180); // Negative angle for inverse rotation
+      const cos = Math.cos(angleRad);
+      const sin = Math.sin(angleRad);
 
-    // Rotate point into line's local coordinate space
-    const angle = Math.atan2(dy, dx);
-    const cos = Math.cos(-angle);
-    const sin = Math.sin(-angle);
+      // 1. Translate point to be relative to polygon's center
+      const translatedX = point.x - c.x;
+      const translatedY = point.y - c.y;
 
-    const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
-    const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
+      // 2. Rotate the translated point
+      const rotatedX = translatedX * cos - translatedY * sin;
+      const rotatedY = translatedX * sin + translatedY * cos;
 
-    const lineHeight = typeof line.height === "number" ? line.height : 4;
+      // 3. Check if the transformed point is inside the polygon's local vertices
+      if (isPointInPolygon({ x: rotatedX, y: rotatedY }, v)) {
+        if (ownerId === currentPlayerId || !ownerPresent) {
+          return obj.id;
+        }
+      }
+    } else if (obj.type === "line") {
+      const start = obj.start;
+      const end = computeEnd(obj);
 
-    // Check if inside the rectangle bounds
-    const halfH = lineHeight / 2;
-    if (
-      localX >= 0 &&
-      localX <= length &&
-      localY >= -halfH &&
-      localY <= halfH
-    ) {
-      const ownerId = line.playerId;
-      const ownerPresent = presentIds.has(ownerId);
-      // Allow selection if the user is the owner OR if the owner is not in the game
-      if (ownerId === currentPlayerId || !ownerPresent) {
-        return line.id;
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+
+      // Rotate point into line's local coordinate space
+      const angle = Math.atan2(dy, dx);
+      const cos = Math.cos(-angle);
+      const sin = Math.sin(-angle);
+
+      const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
+      const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
+
+      const lineHeight = typeof obj.height === "number" ? obj.height : 4;
+
+      // Check if inside the rectangle bounds
+      const halfH = lineHeight / 2;
+      if (
+        localX >= 0 &&
+        localX <= length &&
+        localY >= -halfH &&
+        localY <= halfH
+      ) {
+        // Allow selection if the user is the owner OR if the owner is not in the game
+        if (ownerId === currentPlayerId || !ownerPresent) {
+          return obj.id;
+        }
       }
     }
   }
@@ -129,22 +163,15 @@ export function showToast(message) {
   }, 2000);
 }
 
-export function handleUndoLastLine() {
-  // --- FIX --- Use 'socketId' for consistency
-  const playerId = State.get("socketId");
-  if (!playerId) return;
-
-  const lines = State.get("lines");
-  const lastUserLine = [...lines]
-    .reverse()
-    .find((line) => line.playerId === playerId);
-
-  if (!lastUserLine) return;
-
-  Network.deleteLine(lastUserLine.id);
-  if (State.get("selectedLineId") === lastUserLine.id) {
-    State.set("selectedLineId", null);
-  }
+// Rotates a point around the origin (0,0)
+function rotatePoint(point, angle) {
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: point.x * cos - point.y * sin,
+    y: point.x * sin + point.y * cos,
+  };
 }
 
 export function getSpawnDiameter(mapSize) {
@@ -229,4 +256,123 @@ export function normalizeServerLine(payload) {
         ? payload.angle
         : computeAngleDeg(start, end),
   };
+}
+
+/**
+ * Calculate the centroid (geometric center) of a polygon.
+ * @param {Array<{x:number, y:number}>} verts - polygon vertices in order (not necessarily closed)
+ * @returns {[number, number]} centroid as [cx, cy]
+ */
+// return { x, y } (always)
+export function calculatePolygonCenter(verts) {
+  if (!Array.isArray(verts) || verts.length === 0) return { x: 0, y: 0 };
+
+  // normalize vertices to objects {x,y}
+  const v = verts.map((p) =>
+    Array.isArray(p)
+      ? { x: Number(p[0]), y: Number(p[1]) }
+      : { x: Number(p.x), y: Number(p.y) },
+  );
+
+  const n = v.length;
+  if (n === 1) return { x: v[0].x, y: v[0].y };
+  if (n === 2) return { x: (v[0].x + v[1].x) / 2, y: (v[0].y + v[1].y) / 2 };
+
+  let twiceArea = 0; // 2 * signed area
+  let cxTimes6Area = 0;
+  let cyTimes6Area = 0;
+
+  for (let i = 0; i < n; i++) {
+    const a = v[i];
+    const b = v[(i + 1) % n];
+    const cross = a.x * b.y - b.x * a.y;
+    twiceArea += cross;
+    cxTimes6Area += (a.x + b.x) * cross;
+    cyTimes6Area += (a.y + b.y) * cross;
+  }
+
+  // degenerate polygon -> fallback to simple average
+  if (Math.abs(twiceArea) < 1e-8) {
+    let sx = 0,
+      sy = 0;
+    for (let i = 0; i < n; i++) {
+      sx += v[i].x;
+      sy += v[i].y;
+    }
+    return { x: sx / n, y: sy / n };
+  }
+
+  // centroid formula: Cx = (1/(6A)) * sum( (xi + xi+1) * cross )
+  // twiceArea = 2*A => 6*A = 3*twiceArea
+  const cx = cxTimes6Area / (3 * twiceArea);
+  const cy = cyTimes6Area / (3 * twiceArea);
+
+  return { x: cx, y: cy };
+}
+
+/**
+ * A variant of getHitObjectId that checks for any object under the cursor,
+ * regardless of ownership. Used for the hover tooltip.
+ * @param {{x, y}} point The coordinates of the mouse.
+ * @param {Array<Object>} objects The array of all objects.
+ * @returns {Object|null} The hovered object itself, or null.
+ */
+export function getHoveredObject(point, objects) {
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i];
+    if (obj.type === "poly") {
+      const { c, v, a, scale } = obj;
+      const s = scale || 1;
+      const angleRad = -a * (Math.PI / 180);
+      const cos = Math.cos(angleRad);
+      const sin = Math.sin(angleRad);
+      const translatedX = point.x - c.x;
+      const translatedY = point.y - c.y;
+      const rotatedX = translatedX * cos - translatedY * sin;
+      const rotatedY = translatedX * sin + translatedY * cos;
+      // Reverse the scale transformation for accurate hit detection
+      const finalX = rotatedX / s;
+      const finalY = rotatedY / s;
+
+      if (isPointInPolygon({ x: finalX, y: finalY }, v)) {
+        return obj;
+      }
+    } else if (obj.type === "line") {
+      const start = obj.start;
+      const end = computeEnd(obj);
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      const cos = Math.cos(-angle);
+      const sin = Math.sin(-angle);
+      const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
+      const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
+      const lineHeight = typeof obj.height === "number" ? obj.height : 4;
+      const halfH = lineHeight / 2;
+
+      if (localX >= 0 && localX <= length && localY >= -halfH && localY <= halfH) {
+        return obj;
+      }
+    }
+  }
+  return null;
+}
+
+// utils-client.js
+
+// --- Replace the handleUndoLastObject function ---
+export function handleUndoLastObject() {
+  const myId = State.get("socketId");
+  const objects = State.get("objects");
+
+  // **FIX**: Filter for the user's objects that have a creation timestamp,
+  // then sort by that timestamp to find the most recent one.
+  const myLastObject = objects
+    .filter(obj => obj.playerId === myId && obj.createdAt)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+  if (myLastObject) {
+    Network.deleteObject(myLastObject.id);
+  }
 }

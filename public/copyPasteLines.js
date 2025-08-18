@@ -3,31 +3,27 @@ import { getSpawnDiameter, showToast } from "./utils-client.js";
 import UI from "./ui.js";
 import * as Network from "./network.js";
 
-
-export function copyLineInfo(lines) {
+export function copyLineInfo() {
   const cz = State.get("capZone");
   const spawn = State.get("spawnCircle");
+  const stateObjects = State.get("objects") || [];
 
   if (!cz) throw new Error("No capZone in state!");
 
-  console.log("copyLineInfo triggered", lines);
+  console.log("copyLineInfo triggered", { stateObjects });
 
-  if (!Array.isArray(lines) || lines.length === 0) {
-    showToast("No lines to copy.");
-    return;
-  }
-
+  // canvas / export dims
   const GW = canvas.width;
   const GH = canvas.height;
   const EW = 730;
   const EH = 500;
-
   const scaleX = EW / GW;
   const scaleY = EH / GH;
 
-  // Fixed background and cap‑zone entries
+  // background and capzone (unchanged)
   const bgLine = {
     id: 0,
+    type: "line",
     color: 921102,
     x: 935,
     y: 350,
@@ -40,24 +36,215 @@ export function copyLineInfo(lines) {
     isFloor: true,
   };
 
-  // Center of cap zone in game canvas coords
+  
+  const exportedObjects = [];
+
+  exportedObjects.push(bgLine);
+
+  // line id counter (starts at 2 so first exported line gets id = 2)
+  let nextObjId = 1;
+
+  for (let idx = 0; idx < stateObjects.length; idx++) {
+    const obj = stateObjects[idx];
+    if (!obj) continue;
+
+    // POLYGON -> export as poly (preserve original mapping logic)
+    if (obj.type === "poly") {
+      const c = obj.c || {};
+      const v = Array.isArray(obj.v) ? obj.v : [];
+      const a = typeof obj.a === "number" ? obj.a : 0;
+      const sc = typeof obj.scale === "number" ? obj.scale : 1;
+      const polyType = obj.polyType || "normal";
+
+      const centerExternal = gameToExternal((c.x || 0), (c.y || 0));
+      const externalVertices = v.map(function (p) {
+        const px = (p && typeof p.x === "number" && !Number.isNaN(p.x)) ? p.x : 0;
+        const py = (p && typeof p.y === "number" && !Number.isNaN(p.y)) ? p.y : 0;
+        return { x: px * sc * scaleX, y: py * sc * scaleY };
+      });
+
+      let color = 16777215;
+      let isBouncy = false;
+      let isDeath = false;
+      if (polyType === "bouncy") {
+        color = 10994878;
+        isBouncy = true;
+      } else if (polyType === "death") {
+        color = 12713984;
+        isDeath = true;
+      }
+
+      exportedObjects.push({
+        id: nextObjId++,
+        type: "poly",
+        color: color,
+        isBgLine: false,
+        noGrapple: true,
+        x: centerExternal.x,
+        y: centerExternal.y,
+        angle: a,
+        scale: sc,
+        vertices: externalVertices,
+        isBouncy: isBouncy,
+        isDeath: isDeath,
+      });
+
+      continue;
+    }
+
+    // LINE-LIKE -> export as line (type explicitly "line")
+    if (obj.type === "line" || obj.start) {
+      // inline isNumber check
+      const isNumber = function (n) { return typeof n === "number" && !Number.isNaN(n); };
+
+      // compute centerX/centerY robustly (same logic as before, inlined)
+      let centerX = 0;
+      let centerY = 0;
+
+      const hasWA = isNumber(obj.width) && isNumber(obj.angle);
+      if (hasWA) {
+        const rad = (obj.angle * Math.PI) / 180;
+        const startSafeX = (obj.start && isNumber(obj.start.x)) ? obj.start.x : 0;
+        const startSafeY = (obj.start && isNumber(obj.start.y)) ? obj.start.y : 0;
+        const endDrawX = startSafeX + Math.cos(rad) * obj.width;
+        const endDrawY = startSafeY + Math.sin(rad) * obj.width;
+        centerX = (startSafeX + endDrawX) / 2;
+        centerY = (startSafeY + endDrawY) / 2;
+      } else if (
+        obj.end && isNumber(obj.end.x) && isNumber(obj.end.y) &&
+        obj.start && isNumber(obj.start.x) && isNumber(obj.start.y)
+      ) {
+        centerX = (obj.start.x + obj.end.x) / 2;
+        centerY = (obj.start.y + obj.end.y) / 2;
+      } else if (Array.isArray(obj.points) && obj.points.length >= 2) {
+        const first = obj.points[0];
+        const last = obj.points[obj.points.length - 1];
+        const fx = (first && isNumber(first.x)) ? first.x : 0;
+        const fy = (first && isNumber(first.y)) ? first.y : 0;
+        const lx = (last && isNumber(last.x)) ? last.x : 0;
+        const ly = (last && isNumber(last.y)) ? last.y : 0;
+        centerX = (fx + lx) / 2;
+        centerY = (fy + ly) / 2;
+      } else if (Array.isArray(obj.vertices) && obj.vertices.length >= 2) {
+        const first = obj.vertices[0];
+        const last = obj.vertices[obj.vertices.length - 1];
+        const fx = (first && isNumber(first.x)) ? first.x : 0;
+        const fy = (first && isNumber(first.y)) ? first.y : 0;
+        const lx = (last && isNumber(last.x)) ? last.x : 0;
+        const ly = (last && isNumber(last.y)) ? last.y : 0;
+        centerX = (fx + lx) / 2;
+        centerY = (fy + ly) / 2;
+      } else if (Array.isArray(obj.points) && obj.points.length === 1) {
+        const p0 = obj.points[0];
+        centerX = (p0 && isNumber(p0.x)) ? p0.x : 0;
+        centerY = (p0 && isNumber(p0.y)) ? p0.y : 0;
+      } else if (obj.start && isNumber(obj.start.x) && isNumber(obj.start.y)) {
+        centerX = obj.start.x;
+        centerY = obj.start.y;
+      } else {
+        // ultimate fallback
+        console.warn("copyLineInfo: line-like missing coord data, defaulting to 0,0", obj);
+        centerX = 0;
+        centerY = 0;
+      }
+
+      const externalCenter = gameToExternal(centerX, centerY);
+
+      // compute length & angle
+      let length = 0;
+      let angle = 0;
+      if (hasWA) {
+        const rad = (obj.angle * Math.PI) / 180;
+        length = obj.width * Math.hypot(Math.cos(rad) * scaleX, Math.sin(rad) * scaleY);
+        angle = (Math.atan2(Math.sin(rad) * scaleY, Math.cos(rad) * scaleX) * 180) / Math.PI;
+      } else {
+        // determine two points pA and pB
+        let pA = null;
+        let pB = null;
+        if (
+          obj.start && obj.end &&
+          isNumber(obj.start.x) && isNumber(obj.start.y) &&
+          isNumber(obj.end.x) && isNumber(obj.end.y)
+        ) {
+          pA = obj.start;
+          pB = obj.end;
+        } else if (Array.isArray(obj.points) && obj.points.length >= 2) {
+          pA = obj.points[0];
+          pB = obj.points[obj.points.length - 1];
+        } else if (Array.isArray(obj.vertices) && obj.vertices.length >= 2) {
+          pA = obj.vertices[0];
+          pB = obj.vertices[obj.vertices.length - 1];
+        } else if (obj.start && isNumber(obj.start.x) && isNumber(obj.start.y)) {
+          pA = obj.start;
+          pB = obj.start; // zero length
+        } else {
+          pA = { x: 0, y: 0 };
+          pB = { x: 0, y: 0 };
+        }
+
+        const dx = ((pB.x || 0) - (pA.x || 0)) * scaleX;
+        const dy = ((pB.y || 0) - (pA.y || 0)) * scaleY;
+        length = Math.hypot(dx, dy);
+        angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      }
+
+      const thicknessLogical = (typeof obj.height === "number") ? obj.height : 4;
+      const thicknessScaled = thicknessLogical * scaleY;
+
+      // type-based flags/colors (kept exact)
+      let isBouncy = false;
+      let isDeath = false;
+      let bounciness;
+      let color;
+      switch (obj.lineType) {
+        case "bouncy":
+          isBouncy = true;
+          bounciness = null;
+          color = 10994878;
+          break;
+        case "death":
+          isDeath = true;
+          bounciness = -1;
+          color = 12713984;
+          break;
+        default:
+          bounciness = -1;
+          color = (typeof obj.color === "number") ? obj.color : 16777215;
+      }
+
+      exportedObjects.push({
+        id: nextObjId++,
+        type: "line",
+        color: color,
+        isBgLine: false,
+        noGrapple: true,
+        x: externalCenter.x,
+        y: externalCenter.y,
+        width: length,
+        height: thicknessScaled,
+        angle: angle,
+        isBouncy: isBouncy,
+        isDeath: isDeath,
+        bounciness: bounciness,
+      });
+
+      continue;
+    }
+
+ 
+  }
   const capzoneCenterX = cz.x + cz.width / 2;
   const capzoneCenterY = cz.y + cz.height / 2;
+  const capZoneExternal = gameToExternal(capzoneCenterX, capzoneCenterY);
 
-  // Convert to external coords (center-based)
-  const { x: externalCapzoneX, y: externalCapzoneY } = gameToExternal(
-    capzoneCenterX,
-    capzoneCenterY,
-  );
-
-  // Build external-format cap zone
   const capZoneLine = {
-    id: 1,
+    id: nextObjId,
+    type: "line",
     color: 196865,
-    x: externalCapzoneX,
-    y: externalCapzoneY,
-    width: cz.width * scaleX, // scale width to external
-    height: cz.height * scaleY, // scale height to external
+    x: capZoneExternal.x,
+    y: capZoneExternal.y,
+    width: cz.width * scaleX,
+    height: cz.height * scaleY,
     angle: 0,
     isBgLine: false,
     noPhysics: false,
@@ -65,103 +252,24 @@ export function copyLineInfo(lines) {
     isCapzone: true,
   };
 
-  // Convert each user-drawn line into your target format
-  const userLines = lines.map((l, i) => {
-    const hasWA = typeof l.width === "number" && typeof l.angle === "number";
+  exportedObjects.push(capZoneLine);
 
-    // --- Compute center in game coords using the same geometry you draw with ---
-    let centerX, centerY;
-
-    if (hasWA) {
-      const rad = (l.angle * Math.PI) / 180;
-      const endDraw = {
-        x: l.start.x + Math.cos(rad) * l.width,
-        y: l.start.y + Math.sin(rad) * l.width,
-      };
-      centerX = (l.start.x + endDraw.x) / 2;
-      centerY = (l.start.y + endDraw.y) / 2;
-    } else {
-      centerX = (l.start.x + l.end.x) / 2;
-      centerY = (l.start.y + l.end.y) / 2;
-    }
-
-    const { x: extX, y: extY } = gameToExternal(centerX, centerY);
-
-    // --- Exact exported length & angle ---
-    let length, angle;
-
-    if (hasWA) {
-      const rad = (l.angle * Math.PI) / 180;
-      // exact length under anisotropic scaling
-      length =
-        l.width * Math.hypot(Math.cos(rad) * scaleX, Math.sin(rad) * scaleY);
-
-      // exported (external-space) angle after anisotropic scaling
-      angle =
-        (Math.atan2(Math.sin(rad) * scaleY, Math.cos(rad) * scaleX) * 180) /
-        Math.PI;
-    } else {
-      // fallback to endpoints if width/angle not present
-      const dx = (l.end.x - l.start.x) * scaleX;
-      const dy = (l.end.y - l.start.y) * scaleY;
-      length = Math.hypot(dx, dy);
-      angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    }
-
-    // thickness (logical) → exported vertical scale
-    const thicknessLogical = typeof l.height === "number" ? l.height : 4;
-    const thicknessScaled = thicknessLogical * scaleY;
-
-    let isBouncy = false;
-    let isDeath = false;
-    let bounciness;
-    let color;
-    switch (l.type) {
-      case "bouncy":
-        isBouncy = true;
-        bounciness = null;
-        color = 10994878;
-        break;
-      case "death":
-        isDeath = true;
-        bounciness = -1;
-        color = 12713984;
-        break;
-      default:
-        bounciness = -1;
-        color = 16777215;
-    }
-
-    return {
-      id: i + 2,
-      color,
-      isBgLine: false,
-      noGrapple: true,
-      x: extX,
-      y: extY,
-      width: length, // ✅ exact
-      height: thicknessScaled,
-      angle, // ✅ external-space angle
-      isBouncy,
-      isDeath,
-      bounciness,
-    };
-  });
-
-  const { x: extSpawnX, y: extSpawnY } = gameToExternal(spawn.x, spawn.y);
+  const spawnExternal = gameToExternal(spawn.x, spawn.y);
   const mapSize = State.get("mapSize");
+
   const out = {
     version: 1,
-    spawn: { spawnX: extSpawnX - 935, spawnY: extSpawnY - 350 },
+    spawn: { spawnX: spawnExternal.x - 935, spawnY: spawnExternal.y - 350 },
     mapSize: mapSize,
-    lines: [bgLine, capZoneLine, ...userLines],
+    objects: exportedObjects,
   };
 
   navigator.clipboard
     .writeText(JSON.stringify(out, null, 2))
-    .then(() => showToast("Map data copied!"))
-    .catch((e) => showToast("Copy failed: " + e));
+    .then(function () { showToast("Map data copied!"); })
+    .catch(function (e) { showToast("Copy failed: " + e); });
 }
+
 
 function gameToExternal(gameX, gameY) {
   const GW = canvas.width; // 650
@@ -253,8 +361,6 @@ export async function pasteLines() {
   const COLOR_BOUNCY = 10994878;
   const COLOR_DEATH = 12713984;
   const COLOR_DEFAULT = 16777215;
-
- 
 
   const imported = [];
   let indexCounter = 1; // id counter for new internal lines

@@ -1,41 +1,57 @@
-/**
- * handlers.js - UI Event Binders
- */
+//** handlers.js - UI Event Binders
+//
 import UI from "./ui.js";
 import State from "./state.js";
 import * as Network from "./network.js";
 import {
-  getHitLineId,
+  getHitObjectId,
+  getHoveredObject,
   distance,
+  getLineProps,
   pointFromEventOnCanvas,
-  handleUndoLastLine,
+  normalizeAngle,
+  handleUndoLastObject,
+  calculatePolygonCenter,
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
+import { splitConcaveIntoConvex } from "./splitConvex.js";
 
 // --- State Flags for Mouse Actions ---
-let isDraggingLine = false;
+let isDraggingObject = false;
 let isDraggingSpawn = false;
 let isDraggingCapZone = false;
 let isDrawingLine = false;
 let mouseMovedSinceDown = false;
 
-// FIX 10: State for tracking held-down keys for smooth diagonal movement.
 const keysDown = new Set();
 let nudgeLoopId = null;
 
 // --- Canvas Event Handlers ---
 function handleCanvasDown(e) {
-  // FIX 6: Ensure actions only start on the canvas element itself, not other UI.
   if (e.button !== 0 || e.target !== UI.elems.canvas) return;
 
   const point = pointFromEventOnCanvas(e);
   State.set("mouse", point);
   mouseMovedSinceDown = false;
 
-  // Priority 1: Dragging map objects
+  // **FIX**: Prevent any object selection if a new shape is currently being drawn.
+  if (!State.get("drawingShape")) {
+    const hitObjectId = getHitObjectId(point, State.get("objects"));
+    if (hitObjectId) {
+      State.set("selectedObjectId", hitObjectId);
+      isDraggingObject = true;
+      const object = State.get("objects").find((o) => o.id === hitObjectId);
+      State.set("draggingPreview", {
+        mouseStart: point,
+        originalObject: object,
+        object: { ...object },
+      });
+      return;
+    }
+  }
+
   const spawn = State.get("spawnCircle");
   if (spawn && distance(point, spawn) < spawn.diameter / 2 + 5) {
-    // Added buffer
     isDraggingSpawn = true;
     return;
   }
@@ -51,23 +67,54 @@ function handleCanvasDown(e) {
     return;
   }
 
-  // Priority 2: Clicking an existing line to select/drag
-  const hitLineId = getHitLineId(point);
-  if (hitLineId) {
-    State.set("selectedLineId", hitLineId);
-    isDraggingLine = true;
-    const line = State.get("lines").find((l) => l.id === hitLineId);
-    // Set up a preview state for dragging to avoid modifying the source line directly
-    State.set("draggingPreview", {
-      mouseStart: point,
-      originalLine: line,
-      line: { ...line }, // Work on a copy
-    });
+  if (State.get("isDrawingPoly")) {
+    const currentShape = State.get("drawingShape");
+    if (!currentShape || currentShape.type !== "poly") {
+      State.set("drawingShape", { type: "poly", vertices: [point] });
+      // **FEATURE**: Update status text when drawing begins.
+      UI.setStatus(
+        "Click to add points, close shape to finish, or 'X' to cancel.",
+      );
+    } else {
+      const vertices = currentShape.vertices;
+      if (vertices.length > 1 && distance(point, vertices[0]) < 10) {
+        if (vertices.length < 3) {
+          State.set("drawingShape", null);
+          UI.setStatus("Click on the canvas to start drawing a polygon.");
+
+          return;
+        }
+
+        const shapeToSplit = { v: vertices.map((p) => [p.x, p.y]) };
+        const convexPolygons = splitConcaveIntoConvex(shapeToSplit);
+
+        const polygonsToSend = convexPolygons.map((convexPoly) => {
+          const absoluteVertices = convexPoly.v.map((p) => ({
+            x: p[0],
+            y: p[1],
+          }));
+          const center = calculatePolygonCenter(absoluteVertices);
+          const relativeVertices = absoluteVertices.map((p) => ({
+            x: p.x - center.x,
+            y: p.y - center.y,
+          }));
+          return { v: relativeVertices, c: center };
+        });
+        Network.createObjectsBatch({ objects: polygonsToSend });
+
+        State.set("drawingShape", null);
+      } else {
+        const updatedVertices = [...vertices, point];
+        State.set("drawingShape", {
+          ...currentShape,
+          vertices: updatedVertices,
+        });
+      }
+    }
     return;
   }
 
-  // Priority 3: Deselect and start drawing a new line
-  State.set("selectedLineId", null);
+  State.set("selectedObjectId", null);
   isDrawingLine = true;
   State.set("startPt", point);
 }
@@ -79,6 +126,39 @@ function handleCanvasMove(e) {
     mouseMovedSinceDown = true;
   }
   State.set("mouse", point);
+
+  // **FEATURE**: Hover Tooltip Logic
+  const tooltip = UI.elems.tooltip;
+  if (tooltip) {
+    const hoveredObject = getHoveredObject(point, State.get("objects"));
+    // Show tooltip only if hovering an object that is not currently selected
+    if (hoveredObject && hoveredObject.id !== State.get("selectedObjectId")) {
+      let tooltipText = "";
+      if (hoveredObject.type === "line") {
+        const { width, height, angle } = getLineProps(hoveredObject);
+        tooltipText = `Type:  Line
+  X:     ${hoveredObject.start.x.toFixed(1)}
+  Y:     ${hoveredObject.start.y.toFixed(1)}
+  W:     ${width.toFixed(1)}
+  H:     ${height.toFixed(1)}
+  Angle: ${normalizeAngle(angle).toFixed(1)}°`;
+      } else if (hoveredObject.type === "poly") {
+        tooltipText = `Type: Polygon
+  X:    ${hoveredObject.c.x.toFixed(1)}
+  Y:    ${hoveredObject.c.y.toFixed(1)}`;
+      }
+      tooltip.innerHTML = tooltipText;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${e.clientX + 15}px`;
+      tooltip.style.top = `${e.clientY + 15}px`;
+    } else {
+      tooltip.style.display = "none";
+    }
+  }
+
+  if (State.get("isDrawingPoly") && State.get("drawingShape")) {
+    return; // Keep this to allow live preview line to work without other move logic interfering
+  }
 
   if (isDraggingSpawn) {
     const spawn = State.get("spawnCircle");
@@ -94,98 +174,103 @@ function handleCanvasMove(e) {
     });
     return;
   }
-  if (isDraggingLine) {
+  if (isDraggingObject) {
     const preview = State.get("draggingPreview");
-    if (!preview) return;
+    if (!preview || !preview.object) return;
     const dx = point.x - preview.mouseStart.x;
     const dy = point.y - preview.mouseStart.y;
-    const updatedLine = {
-      ...preview.originalLine,
-      start: {
-        x: preview.originalLine.start.x + dx,
-        y: preview.originalLine.start.y + dy,
-      },
-      end: {
-        x: preview.originalLine.end.x + dx,
-        y: preview.originalLine.end.y + dy,
-      },
-    };
-    State.set("draggingPreview", { ...preview, line: updatedLine });
+    let updatedObject;
+    if (preview.object.type === "poly") {
+      updatedObject = {
+        ...preview.originalObject,
+        c: {
+          x: preview.originalObject.c.x + dx,
+          y: preview.originalObject.c.y + dy,
+        },
+      };
+    } else {
+      // 'line'
+      updatedObject = {
+        ...preview.originalObject,
+        start: {
+          x: preview.originalObject.start.x + dx,
+          y: preview.originalObject.start.y + dy,
+        },
+        end: {
+          x: preview.originalObject.end.x + dx,
+          y: preview.originalObject.end.y + dy,
+        },
+      };
+    }
+    State.set("draggingPreview", { ...preview, object: updatedObject });
     return;
   }
   if (isDrawingLine) {
     const startPt = State.get("startPt");
     if (startPt) {
-      State.set("currentLine", { start: startPt, end: point });
+      State.set("drawingShape", { type: "line", start: startPt, end: point });
     }
   }
 }
 
+// handlers.js
+
 function handleCanvasUp(e) {
-  let actionTaken = false;
+  // **FIX**: The original code would 'return' here if isDrawingPoly was true,
+  // preventing the flags below from being reset. Removing the early return
+  // and letting the full function run fixes the "stuck object" bug.
 
   if (isDraggingSpawn) {
-    actionTaken = true;
     const spawn = State.get("spawnCircle");
     Network.setSpawnCircle({ x: spawn.x, y: spawn.y });
   }
   if (isDraggingCapZone) {
-    actionTaken = true;
     const cz = State.get("capZone");
     Network.setCapZone({ x: cz.x, y: cz.y });
   }
-  if (isDraggingLine) {
-    actionTaken = true;
+  if (isDraggingObject) {
     const preview = State.get("draggingPreview");
-    if (preview && preview.line && mouseMovedSinceDown) {
-      // FIX 3: Optimistic update to prevent visual flicker on drop.
-      const lines = State.get("lines").map((l) =>
-        l.id === preview.line.id ? preview.line : l,
-      );
-      State.set("lines", lines);
-
-      Network.updateLine({
-        id: preview.originalLine.id,
-        start: preview.line.start,
-        end: preview.line.end,
-      });
+    if (preview && preview.object && mouseMovedSinceDown) {
+      const { id, type } = preview.originalObject;
+      let payload = { id };
+      if (type === "poly") payload.c = preview.object.c;
+      if (type === "line") {
+        payload.start = preview.object.start;
+        payload.end = preview.object.end;
+      }
+      Network.updateObject(payload);
     }
   }
-  if (isDrawingLine) {
+
+  // This check prevents a new line from being created upon finishing a polygon click.
+  if (isDrawingLine && !State.get("isDrawingPoly")) {
     const startPt = State.get("startPt");
     const endPt = State.get("mouse");
-    // FIX 6: The distance check correctly prevents creating tiny lines on simple clicks.
     if (startPt && distance(startPt, endPt) > 5) {
-      actionTaken = true;
-      Network.createLine({ start: startPt, end: endPt });
+      Network.createObject({ start: startPt, end: endPt });
     }
   }
 
-  // Reset all state flags and temporary data
-  isDraggingLine = false;
+  // This cleanup logic now runs correctly in all cases.
+  isDraggingObject = false;
   isDraggingSpawn = false;
   isDraggingCapZone = false;
   isDrawingLine = false;
   State.set("startPt", null);
-  State.set("currentLine", null);
-  State.set("draggingPreview", null);
-
-  // FIX 6: If a drag operation happened on the canvas, prevent the mouseup
-  // event from accidentally triggering clicks on other UI elements.
-  if (actionTaken && e) {
-    e.preventDefault();
+  // We avoid clearing the drawingShape for polygons, as it's managed by sequential clicks.
+  if (!State.get("isDrawingPoly")) {
+    State.set("drawingShape", null);
   }
+  State.set("draggingPreview", null);
 }
-
 // --- Keyboard Handlers ---
 
-// FIX 10: Loop for smooth diagonal movement using requestAnimationFrame.
 function startNudgeLoop() {
-  if (nudgeLoopId) return; // Already running
+  if (nudgeLoopId) return;
 
   const nudgeLoop = () => {
-    const selId = State.get("selectedLineId");
-    if (!selId || keysDown.size === 0) {
+    const selectedId = State.get("selectedObjectId");
+    if (!selectedId || keysDown.size === 0) {
       stopNudgeLoop();
       return;
     }
@@ -197,7 +282,7 @@ function startNudgeLoop() {
     if (keysDown.has("ArrowRight")) nudge.x += 1;
 
     if (nudge.x !== 0 || nudge.y !== 0) {
-      Network.updateLine({ id: selId, nudge });
+      Network.updateObject({ id: selectedId, nudge });
     }
 
     nudgeLoopId = requestAnimationFrame(nudgeLoop);
@@ -214,7 +299,7 @@ function stopNudgeLoop() {
 
 function handleKeyUp(e) {
   keysDown.delete(e.key);
-  if (!e.key.startsWith("Arrow") && keysDown.size === 0) {
+  if (keysDown.size === 0) {
     stopNudgeLoop();
   }
 }
@@ -227,23 +312,32 @@ function handleKeyDown(e) {
   if (!State.get("gameActive")) return;
 
   const key = e.key.toLowerCase();
-  const selId = State.get("selectedLineId");
+
+  // FIX: Cancel polygon drawing with 'x'
+  if (key === "x" && State.get("isDrawingPoly") && State.get("drawingShape")) {
+    e.preventDefault();
+    State.set("drawingShape", null);
+    UI.setStatus("Click to start drawing a new polygon.");
+    return;
+  }
+  const selectedId = State.get("selectedObjectId");
 
   const chatInput = UI.elems.chatInput;
   if (key === "enter" && document.activeElement !== chatInput) {
-    e.preventDefault(); // ✅ use `e`, not `ev`
+    e.preventDefault();
     chatInput.focus();
     return;
   }
-
-  // General commands (no selection needed)
-  if (key === "z" && (e.metaKey || e.ctrlKey)) {
+  if (key === "p") {
     e.preventDefault();
-    handleUndoLastLine();
+    UI.elems.drawPolyBtn?.click();
     return;
   }
-
-  // FIX 5: 'h' key toggles username visibility.
+  if (key === "z" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    handleUndoLastObject(); // Call to undefined function, assuming it exists
+    return;
+  }
   if (key === "h") {
     e.preventDefault();
     const checkbox = UI.elems.hideUsernamesCheckbox;
@@ -254,15 +348,15 @@ function handleKeyDown(e) {
     return;
   }
   if (key === "c") {
-    copyLineInfo(State.get("lines"));
+    copyLineInfo(State.get("objects"));
     return;
   }
 
-  if (!selId) return;
-  const line = State.get("lines").find((l) => l.id === selId);
-  if (!line) return;
+  if (!selectedId) return;
+  const object = State.get("objects").find((o) => o.id === selectedId);
+  if (!object) return;
 
-  // FIX 10: Arrow key nudges are now handled by the key tracking system.
+  // Nudge
   if (e.key.startsWith("Arrow") && !e.altKey && !e.shiftKey) {
     e.preventDefault();
     keysDown.add(e.key);
@@ -270,58 +364,102 @@ function handleKeyDown(e) {
     return;
   }
 
-  // ALT + Arrow for width/height
-  if (e.altKey && e.key.startsWith("Arrow")) {
-    e.preventDefault();
-    const step = e.shiftKey ? 10 : 1;
-    if (key === "arrowleft" || key === "arrowright") {
+  if (object.type === "poly") {
+    // Angle
+    if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
+      e.preventDefault();
+      const step = e.ctrlKey ? 10 : 1;
       const delta = key === "arrowleft" ? -step : step;
-      Network.updateLine({ id: selId, widthDelta: delta });
-    } else if (key === "arrowup" || key === "arrowdown") {
-      const delta = key === "arrowup" ? step : -step;
-      Network.updateLine({ id: selId, heightDelta: delta });
+      Network.updateObject({ id: selectedId, angleDelta: delta });
+      return;
     }
-    return;
-  }
-
-  // SHIFT + Arrow for angle
-  if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
-    e.preventDefault();
-    const step = e.ctrlKey ? 10 : 1;
-    const delta = key === "arrowleft" ? -step : step;
-    Network.updateLine({ id: selId, angleDelta: delta });
-    return;
-  }
-
-  // Other shortcuts
-  switch (key) {
-    case "b":
-      Network.updateLine({
-        id: selId,
-        type: line.type === "bouncy" ? "none" : "bouncy",
-      });
-      break;
-    case "d":
-      Network.updateLine({
-        id: selId,
-        type: line.type === "death" ? "none" : "death",
-      });
-      break;
-    case "n":
-      Network.updateLine({ id: selId, type: "none" });
-      break;
-    case "x":
-    case "delete":
-    case "backspace":
-      Network.deleteLine(selId);
-      break;
+    // Scale
+    if (e.altKey && (key === "arrowup" || key === "arrowdown")) {
+      e.preventDefault();
+      // **FIX**: Add a client-side guard to respect the new max scale value.
+      if (key === "arrowup" && object.scale >= 5) return;
+      const delta = key === "arrowup" ? 0.1 : -0.1; // Server expects a small delta
+      Network.updateObject({ id: selectedId, scaleDelta: delta });
+      return;
+    }
+    switch (key) {
+      case "b":
+        Network.updateObject({
+          id: selectedId,
+          polyType: object.polyType === "bouncy" ? "none" : "bouncy",
+        });
+        break;
+      case "d":
+        Network.updateObject({
+          id: selectedId,
+          polyType: object.polyType === "death" ? "none" : "death",
+        });
+        break;
+      case "n":
+        Network.updateObject({ id: selectedId, polyType: "none" });
+        break;
+      case "x":
+      case "delete":
+      case "backspace":
+        Network.deleteObject(selectedId);
+        break;
+    }
+  } else if (object.type === "line") {
+    // Width/Height
+    if (e.altKey && e.key.startsWith("Arrow")) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      if (key === "arrowleft" || key === "arrowright") {
+        const delta = key === "arrowleft" ? -step : step;
+        Network.updateObject({ id: selectedId, widthDelta: delta });
+      } else if (key === "arrowup" || key === "arrowdown") {
+        const delta = key === "arrowup" ? step : -step;
+        Network.updateObject({ id: selectedId, heightDelta: delta });
+      }
+      return;
+    }
+    // Angle
+    if (e.shiftKey && (key === "arrowleft" || key === "arrowright")) {
+      e.preventDefault();
+      const step = e.ctrlKey ? 10 : 1;
+      const delta = key === "arrowleft" ? -step : step;
+      Network.updateObject({ id: selectedId, angleDelta: delta });
+      return;
+    }
+    switch (key) {
+      case "b":
+        Network.updateObject({
+          id: selectedId,
+          lineType: object.lineType === "bouncy" ? "none" : "bouncy",
+        });
+        break;
+      case "d":
+        Network.updateObject({
+          id: selectedId,
+          lineType: object.lineType === "death" ? "none" : "death",
+        });
+        break;
+      case "n":
+        Network.updateObject({ id: selectedId, lineType: "none" });
+        break;
+      case "x":
+      case "delete":
+      case "backspace":
+        Network.deleteObject(selectedId);
+        break;
+    }
   }
 }
-
 function createSliderHandlerFactory(elems) {
-  return (propName) => {
-    const capitalized = propName[0].toUpperCase() + propName.slice(1);
-    const prefix = `line${capitalized}`;
+  return (propName, type) => {
+    const isPoly = type === "poly";
+
+    // UI uses "angle" in ids (polyAngleSlider / polyAngleValue),
+    // but server side uses property "a" for polygon angle.
+    // Use uiProp for building DOM keys, keep propName for payload.
+    const uiProp = propName === "a" ? "angle" : propName;
+    const capitalized = uiProp.charAt(0).toUpperCase() + uiProp.slice(1);
+    const prefix = isPoly ? `poly${capitalized}` : `line${capitalized}`;
     const sliderKey = `${prefix}Slider`;
     const valueKey = `${prefix}Value`;
 
@@ -329,17 +467,21 @@ function createSliderHandlerFactory(elems) {
     const valueLabel = elems[valueKey];
     if (!slider) return;
 
-    // FIX 1: Send network update on 'input' for live dragging feedback.
     const handleInput = () => {
       if (valueLabel) valueLabel.innerText = slider.value;
-      const id = State.get("selectedLineId");
-      if (id) {
-        const parsed = parseFloat(slider.value);
-        const payload = {
-          [propName]: Number.isFinite(parsed) ? parsed : slider.value,
-        };
-        Network.updateLine({ id, ...payload });
+      const id = State.get("selectedObjectId");
+      if (!id) return;
+
+      let parsed = parseFloat(slider.value);
+
+      // FIX: Normalize scale value from slider (10-1000) back to server range (0.1-10)
+      if (propName === "scale") {
+        parsed = parsed / 100.0;
       }
+
+      const payload = { id };
+      payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
+      Network.updateObject(payload);
     };
 
     slider.addEventListener("input", handleInput);
@@ -348,8 +490,6 @@ function createSliderHandlerFactory(elems) {
 
 export function bindUIEvents() {
   const e = UI.elems;
-
-  // Lobby Controls
   safeAddEvent(e.joinBtn, "click", () => {
     const name = e.usernameInput.value;
     if (name) {
@@ -357,34 +497,19 @@ export function bindUIEvents() {
       State.set("username", name);
     }
   });
-
-  // FIX 11: Pressing Enter in username field clicks the join button.
   safeAddEvent(e.usernameInput, "keydown", (ev) => {
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      e.joinBtn.click();
-    }
+    if (ev.key === "Enter") e.joinBtn.click();
   });
-
-  // FIX 13: Disable checkbox initially. It will be enabled by `app.js` on lobby update.
   if (e.readyCheckbox) e.readyCheckbox.disabled = true;
   safeAddEvent(e.readyCheckbox, "change", (ev) => {
-    if (ev.target.disabled) {
-      ev.target.checked = false;
-      return;
-    }
-    Network.setReady(ev.target.checked);
+    if (!ev.target.disabled) Network.setReady(ev.target.checked);
   });
-
-  // Game Controls
   safeAddEvent(e.voteCheckbox, "change", (ev) =>
     Network.voteFinish(ev.target.checked),
   );
   safeAddEvent(e.hideUsernamesCheckbox, "change", (ev) =>
     State.set("hideUsernames", ev.target.checked),
   );
-
-  // Chat
   safeAddEvent(e.chatSendBtn, "click", () => {
     const msg = e.chatInput.value;
     if (msg) Network.sendChat(msg);
@@ -393,46 +518,69 @@ export function bindUIEvents() {
   safeAddEvent(e.chatInput, "keydown", (ev) => {
     if (ev.key === "Enter") e.chatSendBtn.click();
   });
-
-  // Canvas & Window Listeners
   safeAddEvent(e.canvas, "mousedown", handleCanvasDown);
   window.addEventListener("mousemove", handleCanvasMove);
   window.addEventListener("mouseup", handleCanvasUp);
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("keyup", handleKeyUp);
 
-  // Line Editor
-  createSliderHandlerFactory(e)("width");
-  createSliderHandlerFactory(e)("height");
-  createSliderHandlerFactory(e)("angle");
+  safeAddEvent(e.drawPolyBtn, "click", () => {
+    const isDrawing = !State.get("isDrawingPoly");
+    State.set("isDrawingPoly", isDrawing);
+    e.drawPolyBtn.textContent = `Draw Polygon (${isDrawing ? "ON" : "OFF"})`;
+    e.drawPolyBtn.style.backgroundColor = isDrawing ? "#4CAF50" : "";
+    State.set("selectedObjectId", null);
+    State.set("drawingShape", null);
+    if (isDrawing) {
+      UI.setStatus("Click on the canvas to start drawing a polygon.");
+    } else {
+      UI.setStatus("Draw by dragging on canvas");
+    }
+  });
+
+  const sliderHandler = createSliderHandlerFactory(e);
+  sliderHandler("width", "line");
+  sliderHandler("height", "line");
+  sliderHandler("angle", "line");
+  sliderHandler("a", "poly"); // 'a' is for angle
+  sliderHandler("scale", "poly");
 
   safeAddEvent(e.lineTypeSelect, "change", (ev) => {
-    const id = State.get("selectedLineId");
-    if (id) Network.updateLine({ id, type: ev.target.value });
+    const id = State.get("selectedObjectId");
+    if (id) Network.updateObject({ id, lineType: ev.target.value });
   });
   safeAddEvent(e.deleteLineBtn, "click", () => {
-    const id = State.get("selectedLineId");
-    if (id) Network.deleteLine(id);
+    const id = State.get("selectedObjectId");
+    if (id) Network.deleteObject(id);
   });
-  safeAddEvent(e.copyLineInfoBtn, "click", () => {
-    copyLineInfo(State.get("lines"));
+  safeAddEvent(e.polyTypeSelect, "change", (ev) => {
+    const id = State.get("selectedObjectId");
+    if (id) Network.updateObject({ id, polyType: ev.target.value });
+  });
+  safeAddEvent(e.deletePolyBtn, "click", () => {
+    const id = State.get("selectedObjectId");
+    if (id) Network.deleteObject(id);
   });
 
-  safeAddEvent(e.copyMapBtn, "click", () => {
-    copyLineInfo(State.get("lines"));
-  });
-  safeAddEvent(e.pasteMapBtn, "click", () => {
-    pasteLines();
-  });
   safeAddEvent(e.toFrontBtn, "click", () =>
-    Network.reorderLines({ id: State.get("selectedLineId"), toBack: false }),
+    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: false }),
   );
   safeAddEvent(e.toBackBtn, "click", () =>
-    Network.reorderLines({ id: State.get("selectedLineId"), toBack: true }),
+    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: true }),
+  );
+  safeAddEvent(e.polyToFrontBtn, "click", () =>
+    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: false }),
+  );
+  safeAddEvent(e.polyToBackBtn, "click", () =>
+    Network.reorderObject({ id: State.get("selectedObjectId"), toBack: true }),
   );
 
-  // Map Settings
-  // FIX 2: The spawn size slider now correctly sends map size updates. The visual reset bug was server-side.
+  safeAddEvent(e.copyLineInfoBtn, "click", () =>
+    copyLineInfo(State.get("objects")),
+  );
+  safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo(State.get("objects")));
+  safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
+
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
     const size = parseInt(ev.target.value, 10);
     if (e.spawnSizeValue) e.spawnSizeValue.innerText = size;
@@ -441,8 +589,6 @@ export function bindUIEvents() {
     const size = parseInt(ev.target.value, 10);
     Network.setMapSize(size);
   });
-
-  // Misc
   safeAddEvent(e.popupCloseBtn, "click", () => UI.hide("gameEndPopup"));
 }
 

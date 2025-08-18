@@ -20,7 +20,6 @@ io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
   socket.emit(EVENTS.CONNECT_WITH_ID, socket.id);
 
-  // Send current lobby and game state to new connections
   socket.emit(EVENTS.LOBBY_UPDATE, {
     players: lobby.getLobbyPayload().players,
     gameActive: game.active,
@@ -53,19 +52,21 @@ io.on("connection", (socket) => {
   });
 
   // Game Actions
-  socket.on(EVENTS.CREATE_LINE, (lineData) =>
-    game.handleLineCreation(socket.id, lineData),
+  socket.on(EVENTS.CREATE_OBJECT, (objectData) =>
+    game.handleObjectCreation(socket.id, objectData),
   );
-  socket.on(EVENTS.UPDATE_LINE, (updateData) =>
-    game.handleLineUpdate(socket.id, updateData),
+  socket.on(EVENTS.CREATE_OBJECTS_BATCH, (batchData) =>
+    game.handleObjectsCreationBatch(socket.id, batchData),
   );
-  socket.on(EVENTS.DELETE_LINE, (lineId) =>
-    game.handleLineDeletion(socket.id, lineId),
+  socket.on(EVENTS.UPDATE_OBJECT, (updateData) =>
+    game.handleObjectUpdate(socket.id, updateData),
   );
-  socket.on(EVENTS.REORDER_LINES, (reorderData) =>
-    game.handleLineReorder(socket.id, reorderData),
+  socket.on(EVENTS.DELETE_OBJECT, (objectId) =>
+    game.handleObjectDeletion(socket.id, objectId),
   );
-  // New event handler for pasted lines
+  socket.on(EVENTS.REORDER_OBJECT, (reorderData) =>
+    game.handleObjectReorder(socket.id, reorderData),
+  );
   socket.on(EVENTS.PASTE_LINES, (pasteData) =>
     game.handlePasteLines(socket.id, pasteData),
   );
@@ -89,16 +90,14 @@ io.on("connection", (socket) => {
     const player = lobby.players[socket.id];
     if (!player) return;
 
-    // Message validation
     if (typeof message !== "string" || message.trim().length === 0) return;
     if (message.length > 1000) {
       return socket.emit(EVENTS.CHAT_ERROR, "Message is too long (max 1000).");
     }
 
-    // Rate limiting
     const now = Date.now();
     const userHistory = chatLimiter.get(socket.id) || [];
-    const recentHistory = userHistory.filter((ts) => now - ts < 10000); // 10 seconds
+    const recentHistory = userHistory.filter((ts) => now - ts < 10000);
 
     if (recentHistory.length >= 5) {
       return socket.emit(
@@ -115,7 +114,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("A user disconnected:", socket.id);
-    chatLimiter.delete(socket.id); // Clean up on disconnect
+    chatLimiter.delete(socket.id);
     game.handleDisconnect(socket.id);
     lobby.removePlayer(socket.id);
   });

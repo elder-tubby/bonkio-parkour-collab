@@ -3,7 +3,7 @@
  */
 const { v4: uuidv4 } = require("uuid");
 const { EVENTS } = require("./config");
-const { getSpawnDiameter } = require("./utils"); // ✅ Import from utils.js
+const { getSpawnDiameter } = require("./utils");
 
 class GameManager {
   constructor(io, lobby) {
@@ -11,10 +11,9 @@ class GameManager {
     this.lobby = lobby;
     this.reset();
   }
-
   reset() {
     this.active = false;
-    this.lines = [];
+    this.objects = [];
     this.participants = [];
     this.votes = {};
     this.capZone = { x: 385, y: 400, width: 30, height: 18.5 };
@@ -29,35 +28,22 @@ class GameManager {
 
   start() {
     this.active = true;
-    this.lines = [];
+    this.objects = [];
     this.participants = Object.keys(this.lobby.players).filter(
       (id) => this.lobby.players[id]?.ready,
     );
-
     if (this.participants.length < 2) {
       this.active = false;
       return;
     }
-
-    this.votes = this.participants.reduce(
-      (acc, id) => ({ ...acc, [id]: false }),
-      {},
-    );
     this.participants.forEach((id) => {
       if (this.lobby.players[id]) this.lobby.players[id].inGame = true;
-    });
-
-    // Tell clients to clear their chat
-    this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.CLEAR_CHAT);
     });
-
-    // Send start payload
     const payload = this.getStartPayload();
-    this.participants.forEach((id) => {
-      this.io.to(id).emit(EVENTS.START_GAME, payload);
-    });
-
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.START_GAME, payload),
+    );
     this.broadcastGameState();
     this.lobby.broadcastLobby();
   }
@@ -126,7 +112,6 @@ class GameManager {
     const players = this.getGamePlayers();
     const votesCount = Object.values(this.votes).filter(Boolean).length;
 
-    // Send update to participants only
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.GAME_UPDATE, {
         players,
@@ -142,17 +127,15 @@ class GameManager {
       .filter(Boolean)
       .map((p) => ({ id: p.id, name: p.name, symbol: p.symbol }));
   }
-
   getStartPayload() {
     return {
-      lines: this.lines,
+      objects: this.objects,
       players: this.getGamePlayers(),
       capZone: this.capZone,
       spawnCircle: this.spawnCircle,
       mapSize: this.mapSize,
     };
   }
-
   getSnapshotFor(playerId) {
     return {
       ...this.getStartPayload(),
@@ -164,86 +147,112 @@ class GameManager {
 
   // --- Authoritative Action Handlers ---
 
-  handleLineCreation(playerId, lineData) {
-    if (
-      !this._canPlayerAct(playerId) ||
-      !this._allow(playerId, "createLine", 200)
-    )
+  handleObjectCreation(playerId, objectData) {
+    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "create", 200))
       return;
     if (
-      !lineData ||
-      !this._validPoint(lineData.start) ||
-      !this._validPoint(lineData.end)
+      !objectData ||
+      !this._validPoint(objectData.start) ||
+      !this._validPoint(objectData.end)
     )
       return;
 
-    const dx = lineData.end.x - lineData.start.x;
-    const dy = lineData.end.y - lineData.start.y;
+    const dx = objectData.end.x - objectData.start.x;
+    const dy = objectData.end.y - objectData.start.y;
     if (dx * dx + dy * dy < 25) return;
 
     const player = this.lobby.players[playerId];
-    const newLine = {
+    const newObject = {
+      type: "line",
       id: uuidv4(),
       playerId,
       username: player.name,
       symbol: player.symbol,
-      start: lineData.start,
-      end: lineData.end,
-      type: "none",
+      start: objectData.start,
+      end: objectData.end,
+      lineType: "none",
       width: Math.hypot(dx, dy),
       height: 4,
-      angle: this._computeAngle(lineData.start, lineData.end),
+      angle: this._computeAngle(objectData.start, objectData.end),
+      createdAt: Date.now(),
     };
 
-    this.lines.push(newLine);
-
-    // Send to all participants
+    this.objects.push(newObject);
     this.participants.forEach((id) => {
-      this.io.to(id).emit(EVENTS.LINE_CREATED, newLine);
+      this.io.to(id).emit(EVENTS.OBJECT_CREATED, newObject);
     });
   }
 
-  handleLineDeletion(playerId, lineId) {
-    if (!this._canModifyLine(playerId, lineId)) return;
-
-    this.lines = this.lines.filter((l) => l.id !== lineId);
-
-    this.participants.forEach((id) => {
-      this.io.to(id).emit(EVENTS.LINE_DELETED, { id: lineId });
-    });
-  }
-
-  handleLineReorder(playerId, { id, toBack }) {
-    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
+  handleObjectsCreationBatch(playerId, batchData) {
+    if (
+      !this._canPlayerAct(playerId) ||
+      !this._allow(playerId, "createBatch", 500)
+    )
       return;
+    if (!batchData || !Array.isArray(batchData.objects)) return;
 
-    const index = this.lines.findIndex((l) => l.id === id);
-    if (index === -1) return;
+    const player = this.lobby.players[playerId];
+    const newObjects = [];
 
-    const [line] = this.lines.splice(index, 1);
-    if (toBack) {
-      this.lines.unshift(line);
-    } else {
-      this.lines.push(line);
+    for (const polyData of batchData.objects) {
+      if (
+        polyData &&
+        Array.isArray(polyData.v) &&
+        polyData.v.length >= 3 &&
+        this._validPoint(polyData.c)
+      ) {
+        newObjects.push({
+          type: "poly",
+          id: uuidv4(),
+          playerId,
+          username: player.name,
+          symbol: player.symbol,
+          v: polyData.v,
+          c: polyData.c,
+          a: 0,
+          scale: 1,
+          polyType: "none",
+          createdAt: Date.now(),
+        });
+      }
     }
 
-    this.participants.forEach((pid) => {
-      this.io.to(pid).emit(EVENTS.LINES_REORDERED, this.lines);
-    });
+    if (newObjects.length > 0) {
+      this.objects.push(...newObjects);
+      this.participants.forEach((id) => {
+        this.io.to(id).emit(EVENTS.OBJECTS_CREATED_BATCH, newObjects);
+      });
+    }
   }
 
-  handleLineUpdate(playerId, payload) {
+  handleObjectDeletion(playerId, objectId) {
+    if (!this._canModifyObject(playerId, objectId)) return;
+    this.objects = this.objects.filter((o) => o.id !== objectId);
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.OBJECT_DELETED, { id: objectId }),
+    );
+  }
+
+  handleObjectUpdate(playerId, payload) {
     if (
       !payload?.id ||
-      !this._canModifyLine(playerId, payload.id) ||
-      !this._allow(playerId, "updateLine", 50)
+      !this._canModifyObject(playerId, payload.id) ||
+      !this._allow(playerId, "update", 50)
     )
       return;
 
-    const lineIndex = this.lines.findIndex((l) => l.id === payload.id);
-    if (lineIndex === -1) return;
+    const objIndex = this.objects.findIndex((o) => o.id === payload.id);
+    if (objIndex === -1) return;
 
-    let currentLine = this.lines[lineIndex];
+    const object = this.objects[objIndex];
+    if (object.type === "line") {
+      this._updateLine(object, payload);
+    } else if (object.type === "poly") {
+      this._updatePolygon(object, payload);
+    }
+  }
+
+  _updateLine(currentLine, payload) {
     let updatedLine = { ...currentLine };
 
     const isMoving =
@@ -251,39 +260,29 @@ class GameManager {
       (this._validPoint(payload.start) && this._validPoint(payload.end));
     const isResizing =
       typeof payload.width === "number" ||
+      typeof payload.height === "number" ||
       typeof payload.angle === "number" ||
       payload.widthDelta ||
+      payload.heightDelta ||
       payload.angleDelta;
 
     if (payload.nudge && (payload.nudge.x || payload.nudge.y)) {
       const dx = (payload.nudge.x || 0) * 2;
       const dy = (payload.nudge.y || 0) * 2;
-      updatedLine.start = {
-        x: updatedLine.start.x + dx,
-        y: updatedLine.start.y + dy,
-      };
-      updatedLine.end = {
-        x: updatedLine.end.x + dx,
-        y: updatedLine.end.y + dy,
-      };
+      updatedLine.start = { x: updatedLine.start.x + dx, y: updatedLine.start.y + dy };
+      updatedLine.end = { x: updatedLine.end.x + dx, y: updatedLine.end.y + dy };
     }
-
     if (this._validPoint(payload.start) && this._validPoint(payload.end)) {
       updatedLine.start = payload.start;
       updatedLine.end = payload.end;
     }
-
-    if (payload.widthDelta)
-      updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
-    if (payload.heightDelta)
-      updatedLine.height = (updatedLine.height || 0) + payload.heightDelta;
-    if (payload.angleDelta)
-      updatedLine.angle = (updatedLine.angle || 0) + payload.angleDelta;
-
+    if (payload.widthDelta) updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
+    if (payload.heightDelta) updatedLine.height = (updatedLine.height || 0) + payload.heightDelta;
+    if (payload.angleDelta) updatedLine.angle = (updatedLine.angle || 0) + payload.angleDelta;
     if (typeof payload.width === "number") updatedLine.width = payload.width;
     if (typeof payload.height === "number") updatedLine.height = payload.height;
     if (typeof payload.angle === "number") updatedLine.angle = payload.angle;
-    if (typeof payload.type === "string") updatedLine.type = payload.type;
+    if (typeof payload.lineType === "string") updatedLine.lineType = payload.lineType;
 
     updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width || 0));
     updatedLine.height = Math.max(1, Math.min(1000, updatedLine.height || 0));
@@ -293,10 +292,7 @@ class GameManager {
       const dx = updatedLine.end.x - updatedLine.start.x;
       const dy = updatedLine.end.y - updatedLine.start.y;
       updatedLine.width = Math.hypot(dx, dy);
-      updatedLine.angle = this._computeAngle(
-        updatedLine.start,
-        updatedLine.end,
-      );
+      updatedLine.angle = this._computeAngle(updatedLine.start, updatedLine.end);
     } else if (isResizing) {
       const center = {
         x: (currentLine.start.x + currentLine.end.x) / 2,
@@ -310,20 +306,60 @@ class GameManager {
       updatedLine.end = { x: center.x + halfX, y: center.y + halfY };
     }
 
-    this.lines[lineIndex] = updatedLine;
+    const objIndex = this.objects.findIndex(o => o.id === updatedLine.id);
+    if (objIndex !== -1) this.objects[objIndex] = updatedLine;
+    this.participants.forEach((id) => this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedLine));
+  }
 
-    this.participants.forEach((id) => {
-      this.io.to(id).emit(EVENTS.LINE_UPDATED, updatedLine);
+  // gameManager.js
+  // gameManager.js
+
+  _updatePolygon(currentPoly, payload) {
+    let updatedPoly = { ...currentPoly };
+
+    if (payload.nudge) {
+      updatedPoly.c = {
+        x: updatedPoly.c.x + (payload.nudge.x || 0) * 2,
+        y: updatedPoly.c.y + (payload.nudge.y || 0) * 2,
+      };
+    }
+    if (this._validPoint(payload.c)) updatedPoly.c = payload.c;
+    if (payload.angleDelta) updatedPoly.a = (updatedPoly.a || 0) + payload.angleDelta;
+    if (typeof payload.a === "number") updatedPoly.a = payload.a;
+    if (typeof payload.polyType === "string") updatedPoly.polyType = payload.polyType;
+    updatedPoly.a = (((updatedPoly.a || 0) % 360) + 360) % 360;
+
+    // **FIX**: This corrects the calculation that caused the scale to snap back from its minimum value.
+    if (payload.scaleDelta) {
+      const currentScale = typeof updatedPoly.scale === 'number' ? updatedPoly.scale : 1;
+      updatedPoly.scale = currentScale + payload.scaleDelta;
+    }
+    if (typeof payload.scale === "number") updatedPoly.scale = payload.scale;
+
+    updatedPoly.scale = Math.max(0.1, Math.min(10, updatedPoly.scale || 1));
+
+    const objIndex = this.objects.findIndex(o => o.id === updatedPoly.id);
+    if (objIndex !== -1) this.objects[objIndex] = updatedPoly;
+    this.participants.forEach((id) => this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly));
+  }
+  
+  handleObjectReorder(playerId, { id, toBack }) {
+    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
+      return;
+    const index = this.objects.findIndex((o) => o.id === id);
+    if (index === -1) return;
+
+    const [obj] = this.objects.splice(index, 1);
+    if (toBack) this.objects.unshift(obj);
+    else this.objects.push(obj);
+
+    this.participants.forEach((pid) => {
+      this.io.to(pid).emit(EVENTS.OBJECTS_REORDERED, this.objects);
     });
   }
 
   setSpawnCircle(playerId, { x, y }) {
-    if (
-      !this._canPlayerAct(playerId) ||
-      !this._validCoord(x) ||
-      !this._validCoord(y)
-    )
-      return;
+    if (!this._canPlayerAct(playerId) || !this._validCoord(x) || !this._validCoord(y)) return;
     this.spawnCircle = { ...this.spawnCircle, x, y };
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.SPAWN_CIRCLE_UPDATED, this.spawnCircle);
@@ -331,12 +367,7 @@ class GameManager {
   }
 
   setCapZone(playerId, { x, y }) {
-    if (
-      !this._canPlayerAct(playerId) ||
-      !this._validCoord(x) ||
-      !this._validCoord(y)
-    )
-      return;
+    if (!this._canPlayerAct(playerId) || !this._validCoord(x) || !this._validCoord(y)) return;
     this.capZone = { ...this.capZone, x, y };
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.CAP_ZONE_UPDATED, this.capZone);
@@ -354,56 +385,28 @@ class GameManager {
   }
 
   handlePasteLines(playerId, pasteData) {
-    if (
-      !this._canPlayerAct(playerId) ||
-      !this._allow(playerId, "paste", 3000)
-    ) {
+    if (!this._canPlayerAct(playerId) || !this._allow(playerId, "paste", 3000)) return;
+    if (this.objects.length > 0) {
+      this.io.to(playerId).emit(EVENTS.CHAT_ERROR, "Cannot paste, objects already exist.");
       return;
     }
-
-    // Authoritative check to prevent pasting over an existing map
-    if (this.lines.length > 0) {
-      this.io
-        .to(playerId)
-        .emit(EVENTS.CHAT_ERROR, "Cannot paste, lines already exist.");
-      return;
-    }
-
     if (!pasteData || !Array.isArray(pasteData.lines)) return;
 
     const player = this.lobby.players[playerId];
     const newLines = [];
     for (const line of pasteData.lines) {
-      // Basic validation of the line object from the client
-      if (
-        !line ||
-        !this._validPoint(line.start) ||
-        !this._validPoint(line.end)
-      ) {
-        continue;
-      }
-      newLines.push({
-        ...line, // Carry over properties like type, w/h/a, etc.
-        id: uuidv4(), // Assign a new, server-authoritative ID
-        
-        symbol: " ",
-      });
+      if (!line || !this._validPoint(line.start) || !this._validPoint(line.end)) continue;
+      // Pasted lines are still created as 'line' type objects
+      newLines.push({ ...line, type: 'line', id: uuidv4(), symbol: " " });
     }
 
     if (newLines.length > 0) {
-      this.lines = newLines;
-
-      // Update map state from pasted data
-      if (pasteData.mapSize) {
-        this.setMapSize(playerId, pasteData.mapSize);
-      }
-      if (pasteData.spawn && this._validPoint(pasteData.spawn)) {
+      this.objects = newLines;
+      if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);
+      if (pasteData.spawn && this._validPoint(pasteData.spawn))
         this.setSpawnCircle(playerId, pasteData.spawn);
-      }
-
-      // Use the existing reorder event to send the full new line set to all clients
       this.participants.forEach((id) => {
-        this.io.to(id).emit(EVENTS.LINES_REORDERED, this.lines);
+        this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
       });
     }
   }
@@ -422,27 +425,24 @@ class GameManager {
     return this.active && this.participants.includes(playerId);
   }
 
-  _canModifyLine(playerId, lineId) {
+  _canModifyObject(playerId, objectId) {
     if (!this._canPlayerAct(playerId)) return false;
-    const line = this.lines.find((l) => l.id === lineId);
-    if (!line) return false;
-    const ownerIsPresent = this.participants.includes(line.playerId);
-    return line.playerId === playerId || !ownerIsPresent;
+    const object = this.objects.find((o) => o.id === objectId);
+    if (!object) return false;
+    const ownerIsPresent = this.participants.includes(object.playerId);
+    return object.playerId === playerId || !ownerIsPresent;
   }
 
   _validCoord(c) {
     return typeof c === "number" && isFinite(c);
   }
-
   _validPoint(pt) {
     return pt && this._validCoord(pt.x) && this._validCoord(pt.y);
   }
-
   _computeAngle(start, end) {
-    const angle =
-      Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
+    const angle = Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
     return ((angle % 360) + 360) % 360;
   }
 }
 
-module.exports = { GameManager, EVENTS };
+module.exports = { GameManager };

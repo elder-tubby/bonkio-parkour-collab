@@ -16,31 +16,29 @@ class Emitter {
 class State {
   constructor() {
     this._state = {
-      // --- FIX ---
-      // Initialized all state properties for consistency and to prevent errors.
-      // Renamed `lobbyPlayers` to `players` to match usage in app.js.
-
-      socketId: null, // Was being set but not initialized
+      socketId: null,
       playerId: null,
       username: "",
 
       gameActive: false,
-      players: [], // Formerly `lobbyPlayers` and now correctly named
+      players: [],
 
-      // Line-related state
-      lines: [],
-      currentLine: null,
-      selectedLineId: null,
-      draggingLine: null,
+      // Unified object state
+      objects: [],
+      selectedObjectId: null,
+      draggingPreview: null, // Used for both lines and polys
+
+      // State for drawing new shapes
+      isDrawingPoly: false,
+      drawingShape: null, // { type: 'line', ... } or { type: 'poly', ... }
 
       // Canvas interaction state
       mouse: { x: 0, y: 0 },
       startPt: null,
-      isHoldingS: false,
 
       // Game object state
-      spawnCircle: { x: 0, y: 0, diameter: 18, dragging: false },
-      capZone: { x: null, y: null, width: 30, height: 18.5, dragging: false },
+      spawnCircle: { x: 0, y: 0, diameter: 18 },
+      capZone: { x: null, y: null, width: 30, height: 18.5 },
 
       // Settings
       hideUsernames: false,
