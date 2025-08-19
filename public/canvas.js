@@ -147,6 +147,34 @@ class Canvas {
       });
     }
 
+    // --- DOTTED PATH (put near the top of Canvas.draw so it renders under objects) ---
+    const generatedPath = State.get("generatedPath");
+    if (generatedPath && generatedPath.length > 1) {
+      ctx.save();
+      ctx.setLineDash([6, 6]); // dotted
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255,255,255,0.6)"; // visible but subtle
+      ctx.beginPath();
+      ctx.moveTo(generatedPath[0].x, generatedPath[0].y);
+      for (let i = 1; i < generatedPath.length; i++) {
+        ctx.lineTo(generatedPath[i].x, generatedPath[i].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // optional: small circles for nodes
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      for (let i = 0; i < generatedPath.length; i++) {
+        ctx.beginPath();
+        ctx.arc(generatedPath[i].x, generatedPath[i].y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    // --- end dotted path ---
+
+    
     // --- Draw new shape in progress ---
     const drawingShape = State.get("drawingShape");
     if (drawingShape) {
@@ -176,17 +204,14 @@ class Canvas {
         }
         ctx.stroke();
 
-        // **FIX**: Draw dynamic line from the LAST vertex to the mouse.
-        if (vertices.length > 0) {
-            const mouse = State.get("mouse");
-            ctx.beginPath();
-            ctx.moveTo(
-              vertices[vertices.length - 1].x,
-              vertices[vertices.length - 1].y,
-            );
-            ctx.lineTo(mouse.x, mouse.y);
-            ctx.stroke();
-        }
+        const previewPt = drawingShape.preview || State.get("mouse");
+        ctx.beginPath();
+        ctx.moveTo(
+          vertices[vertices.length - 1].x,
+          vertices[vertices.length - 1].y,
+        );
+        ctx.lineTo(previewPt.x, previewPt.y);
+        ctx.stroke();
 
         // Draw starting point circle
         ctx.fillStyle = "cyan";

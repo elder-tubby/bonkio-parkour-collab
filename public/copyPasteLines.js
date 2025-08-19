@@ -56,10 +56,12 @@ export function copyLineInfo() {
       const polyType = obj.polyType || "normal";
 
       const centerExternal = gameToExternal(c.x || 0, c.y || 0);
+      // keep vertices untouched (no scaling here)
       const externalVertices = v.map(function (p) {
-        const px = p && typeof p.x === "number" && !Number.isNaN(p.x) ? p.x : 0;
-        const py = p && typeof p.y === "number" && !Number.isNaN(p.y) ? p.y : 0;
-        return { x: px * sc * scaleX, y: py * sc * scaleY };
+        return {
+          x: p && typeof p.x === "number" ? p.x : 0,
+          y: p && typeof p.y === "number" ? p.y : 0,
+        };
       });
 
       let color = 16777215;
@@ -287,7 +289,7 @@ export function copyLineInfo() {
       showToast("Map data copied!");
     })
     .catch(function (e) {
-      showToast("Copy failed: " + e);
+      showToast("Copy failed: " + e, true);
     });
 }
 
@@ -324,11 +326,16 @@ function gameToExternal(gameX, gameY) {
  * Rewritten pasteLines to handle the new JSON format with a unified `objects` array.
  */
 export async function pasteLines() {
+  const existing = State.get("objects");
+  if (Array.isArray(existing) && existing.length > 0) {
+    showToast("Cannot paste: Clear all shapes first.", true);
+    return;
+  }
   let raw;
   try {
     raw = await navigator.clipboard.readText();
   } catch (e) {
-    showToast("Unable to read clipboard.");
+    showToast("Unable to read clipboard.", true);
     return;
   }
 
@@ -336,19 +343,19 @@ export async function pasteLines() {
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    showToast("Clipboard does not contain valid JSON.");
+    showToast("Clipboard does not contain valid JSON.", true);
     return;
   }
 
   if (!data || !Array.isArray(data.objects)) {
-    showToast("JSON missing required 'objects' array.");
+    showToast("JSON missing required 'objects' array.", true);
     return;
   }
 
   const GW = UI.elems.canvas.width;
   const GH = UI.elems.canvas.height;
   if (!(GW > 0 && GH > 0)) {
-    showToast("Invalid canvas size.");
+    showToast("Invalid canvas size.", true);
     return;
   }
 

@@ -3,7 +3,7 @@
  * Tracks everyone in the lobby, their "ready" state, and assigns unique symbols.
  */
 
-const { PLAYER_SYMBOLS, EVENTS } = require("./config");
+const { PLAYER_SYMBOLS, getSymbolFromName, EVENTS } = require("./config");
 
 class LobbyManager {
   constructor(io, getGameActive = () => false) {
@@ -14,18 +14,18 @@ class LobbyManager {
 
   addPlayer(socketId, name) {
     const lowerName = name.trim().toLowerCase();
+
+    // Check for duplicate names
     const isDuplicateName = Object.values(this.players).some(
       (p) => p.name.trim().toLowerCase() === lowerName,
     );
+
     if (isDuplicateName) return { error: "duplicateName" };
 
-    const usedSymbols = new Set(
-      Object.values(this.players).map((p) => p.symbol),
-    );
-    const availableSymbols = PLAYER_SYMBOLS.filter((s) => !usedSymbols.has(s));
-    const symbol =
-      availableSymbols.length > 0 ? availableSymbols[0] : PLAYER_SYMBOLS[0];
+    // Check if player's name contains any of the keywords for specific symbols
+    const symbol = getSymbolFromName(name);
 
+    // Assign symbol to the player and create their entry
     this.players[socketId] = {
       id: socketId,
       name: name.trim(),
@@ -38,6 +38,7 @@ class LobbyManager {
     return { success: true };
   }
 
+  
   removePlayer(socketId) {
     delete this.players[socketId];
     this.broadcastLobby();

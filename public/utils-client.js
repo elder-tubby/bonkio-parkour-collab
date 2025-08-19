@@ -137,16 +137,18 @@ export function updateLineTypeUI(type) {
       break;
   }
 }
-
-export function showToast(message) {
+export function showToast(message, isWarning = false) {
   const toast = document.createElement("div");
   toast.textContent = message;
+
+  const backgroundColor = isWarning ? "#d9822b" : "#333"; // darker orange
+
   Object.assign(toast.style, {
     position: "fixed",
     bottom: "1rem",
     left: "50%",
     transform: "translateX(-50%)",
-    background: "#333",
+    background: backgroundColor,
     color: "#fff",
     padding: "0.6rem 1rem",
     borderRadius: "5px",
@@ -155,8 +157,10 @@ export function showToast(message) {
     opacity: 0,
     transition: "opacity 0.3s ease",
   });
+
   document.body.appendChild(toast);
   requestAnimationFrame(() => (toast.style.opacity = 1));
+
   setTimeout(() => {
     toast.style.opacity = 0;
     toast.addEventListener("transitionend", () => toast.remove());

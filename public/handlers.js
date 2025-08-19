@@ -17,6 +17,8 @@ import {
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { splitConcaveIntoConvex } from "./splitConvex.js";
+import { generate as generateMap } from "./auto-generator.js";
+import { showToast } from "./utils-client.js";
 
 // --- State Flags for Mouse Actions ---
 let isDraggingObject = false;
@@ -38,6 +40,23 @@ function handleCanvasDown(e) {
   mouseMovedSinceDown = false;
   mouseDownTime = Date.now();
   const drawingMode = State.get("drawingMode");
+
+  const spawn = State.get("spawnCircle");
+  if (spawn && distance(point, spawn) < spawn.diameter / 2 + 5) {
+    isDraggingSpawn = true;
+    return;
+  }
+  const cz = State.get("capZone");
+  if (
+    cz &&
+    point.x > cz.x &&
+    point.x < cz.x + cz.width &&
+    point.y > cz.y &&
+    point.y < cz.y + cz.height
+  ) {
+    isDraggingCapZone = true;
+    return;
+  }
 
   // Don't auto-clear selection for poly mode here; we need special behaviour:
   if (!e.shiftKey && drawingMode !== "poly") {
@@ -76,17 +95,13 @@ function handleCanvasDown(e) {
     return;
   }
 
-  // Click on empty canvas
-  if (!e.shiftKey) {
-    State.clearSelectedObjects();
-  }
-
   // Click on empty canvas while in poly mode:
   if (drawingMode === "poly") {
     const selectedIds = State.get("selectedObjectIds") || [];
     if (selectedIds.length > 0) {
       // If an object is already selected, just deselect and DO NOT start drawing.
       State.clearSelectedObjects();
+      console.log("Cleared selection.");
       return;
     }
 
@@ -95,23 +110,6 @@ function handleCanvasDown(e) {
     UI.setStatus(
       "Click to add points, close shape to finish, or 'X' to cancel.",
     );
-    return;
-  }
-
-  const spawn = State.get("spawnCircle");
-  if (spawn && distance(point, spawn) < spawn.diameter / 2 + 5) {
-    isDraggingSpawn = true;
-    return;
-  }
-  const cz = State.get("capZone");
-  if (
-    cz &&
-    point.x > cz.x &&
-    point.x < cz.x + cz.width &&
-    point.y > cz.y &&
-    point.y < cz.y + cz.height
-  ) {
-    isDraggingCapZone = true;
     return;
   }
 
@@ -185,24 +183,103 @@ function handleCanvasMove(e) {
   }
   State.set("mouse", point);
 
+  // 🔑 Keep polygon's preview endpoint live, same way line tool does
+  const drawingShape = State.get("drawingShape");
+  if (
+    drawingShape &&
+    drawingShape.type === "poly" &&
+    drawingShape.vertices.length > 0
+  ) {
+    drawingShape.preview = point; // add a transient "preview" field
+    State.set("drawingShape", drawingShape);
+  }
+
+  function padLabel(label, width = 7) {
+    return (label + ":").padEnd(width, " ");
+  }
+  function padValue(value, width = 8) {
+    return String(value).padStart(width, " ");
+  }
+
+  // **FEATURE**: Hover Tooltip Logic
+  const tooltip = UI.elems.tooltip;
+  if (tooltip) {
+    const hoveredObject = getHoveredObject(point, State.get("objects"));
+    // Show tooltip only if hovering an object that is not currently selected
+    if (hoveredObject && hoveredObject.id !== State.get("selectedObjectId")) {
+      let tooltipText = "";
+      if (hoveredObject.type === "line") {
+        const { width, height, angle } = getLineProps(hoveredObject);
+        tooltipText = [
+          `${padLabel("Type")} ${padValue("Line")}`,
+          `${padLabel("X")} ${padValue(hoveredObject.start.x.toFixed(1))}`,
+          `${padLabel("Y")} ${padValue(hoveredObject.start.y.toFixed(1))}`,
+          `${padLabel("W")} ${padValue(width.toFixed(1))}`,
+          `${padLabel("H")} ${padValue(height.toFixed(1))}`,
+          `${padLabel("Angle")} ${padValue(normalizeAngle(angle).toFixed(1) + "°")}`,
+        ].join("\n");
+      } else if (hoveredObject.type === "poly") {
+        tooltipText = [
+          `${padLabel("Type")} ${padValue("Polygon")}`,
+          `${padLabel("X")} ${padValue(hoveredObject.c.x.toFixed(1))}`,
+          `${padLabel("Y")} ${padValue(hoveredObject.c.y.toFixed(1))}`,
+        ].join("\n");
+      }
+
+      tooltip.innerHTML = tooltipText;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${e.clientX + 15}px`;
+      tooltip.style.top = `${e.clientY + 15}px`;
+    } else {
+      tooltip.style.display = "none";
+    }
+  }
+
   if (State.get("drawingMode") === "poly" && State.get("drawingShape")) {
     return;
   }
-
   if (isDraggingSpawn) {
+    const { width, height } = UI.elems.canvas;
     const spawn = State.get("spawnCircle");
-    State.set("spawnCircle", { ...spawn, x: point.x, y: point.y });
+    const radius = spawn.diameter / 2;
+
+    // Allow spawn to be partially off the canvas but not more than half
+    const x = Math.max(
+      -radius,          // Half off the left
+      Math.min(width + radius, point.x) // Half off the right
+    );
+    const y = Math.max(
+      -radius,          // Half off the top
+      Math.min(height + radius, point.y) // Half off the bottom
+    );
+
+    State.set("spawnCircle", { ...spawn, x, y });
     return;
   }
+
   if (isDraggingCapZone) {
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
     const cz = State.get("capZone");
-    State.set("capZone", {
-      ...cz,
-      x: point.x - cz.width / 2,
-      y: point.y - cz.height / 2,
-    });
+    const halfWidth = cz.width / 2;
+    const halfHeight = cz.height / 2;
+
+    // Allow capZone to be partially off the canvas but not more than half on each edge
+    const x = Math.max(
+      -halfWidth,                   // Half off the left
+      Math.min(canvasWidth - halfWidth, point.x) // Half off the right
+    );
+    const y = Math.max(
+      -halfHeight,                  // Half off the top
+      Math.min(canvasHeight - halfHeight, point.y) // Half off the bottom
+    );
+
+    // Update the capZone position, adjusting for the offset
+    State.set("capZone", { ...cz, x, y });
     return;
   }
+
+
 
   if (isDraggingObject) {
     const preview = State.get("draggingPreview");
@@ -374,6 +451,33 @@ function handleKeyDown(e) {
 
   const key = e.key.toLowerCase();
   const selectedIds = State.get("selectedObjectIds");
+
+  // 2) Alt + Arrow keys: prevent browser nav in specific cases
+  if (
+    e.altKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)
+  ) {
+    const objects = State.get("objects") || [];
+    const selectedObjects = objects.filter((o) => State.isSelected(o.id));
+
+    // If no object is selected, block default navigation
+    if (selectedObjects.length === 0) {
+      e.preventDefault();
+      return;
+    }
+
+    // If selection contains polygons but no lines, block Alt+Left/Right
+    const hasLine = selectedObjects.some((o) => o.type === "line");
+    const hasPoly = selectedObjects.some((o) => o.type === "poly");
+    if (
+      hasPoly &&
+      !hasLine &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")
+    ) {
+      e.preventDefault();
+      return;
+    }
+  }
   // Quick toggle for draw mode (M) — delegate to button handler
   if (key === "m") {
     const btn = UI.elems.drawModeBtn;
@@ -388,32 +492,14 @@ function handleKeyDown(e) {
         UI.elems.chatInput.focus();
       }
       return;
-      if (isDrawing && drawingMode === "select" && mouseMovedSinceDown) {
-        const selectionBox = State.get("selectionBox");
-        const allObjects = State.get("objects");
-        const idsToSelect = allObjects
-          .filter(
-            (obj) =>
-              canSelectObject(obj.id) &&
-              isObjectInSelectionBox(obj, selectionBox),
-          )
-          .map((obj) => obj.id);
-
-        if (e.shiftKey) {
-          idsToSelect.forEach((id) => State.addSelectedObjectId(id));
-        } else {
-          State.set("selectedObjectIds", idsToSelect);
-        }
+    case "a":
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const objects = State.get("objects") || [];
+        const objectIds = objects.map((o) => o.id);
+        State.set("selectedObjectIds", objectIds);
+        return;
       }
-
-      if (isDrawing && drawingMode === "line") {
-        const startPt = State.get("startPt");
-        const endPt = State.get("mouse");
-        if (startPt && distance(startPt, endPt) > 5) {
-          Network.createObject({ start: startPt, end: endPt });
-        }
-      }
-
     case "z":
       if (e.metaKey || e.ctrlKey) {
         e.preventDefault();
@@ -713,6 +799,23 @@ export function bindUIEvents() {
   safeAddEvent(e.chatAudioBtn, "click", () => {
     const isSoundOn = !State.get("isChatSoundOn");
     State.set("isChatSoundOn", isSoundOn);
+  });
+
+  safeAddEvent(e.autoGenerateBtn, "click", () => {
+    // Safety Check: Do not run if objects already exist.
+    if (State.get("objects").length > 0) {
+      showToast("Clear the map before auto-generating!", true);
+      return;
+    }
+
+    const newPolygons = generateMap();
+
+    if (newPolygons && newPolygons.length > 0) {
+      Network.createObjectsBatch({ objects: newPolygons });
+      showToast("Map generated successfully!");
+    } else {
+      showToast("Map generation failed. Please try again.", true);
+    }
   });
 }
 

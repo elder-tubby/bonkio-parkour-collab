@@ -46,6 +46,7 @@ class State {
       hideUsernames: false,
       isChatSoundOn: true,
       mapSize: 9,
+      generatedPath: null,
     };
     this.emitter = new Emitter();
   }

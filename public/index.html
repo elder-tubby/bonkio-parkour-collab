@@ -274,6 +274,7 @@
       .control-box {
         background: var(--card-bg);
         padding: 0.9rem;
+        padding-top: 0.1rem;
         border-radius: 8px;
         width: 100%;
         display: flex;
@@ -281,9 +282,27 @@
         align-items: center;
         gap: 0.6rem;
         border: 1px solid var(--muted-border);
-        font-size: 13px; /* uniform font size for all children */
+        font-size: 13px;
+
+        /* NEW: constrain height */
+        height: 115px;      /* 👈 pick the height you want */
+        overflow-y: auto;       /* 👈 enable vertical scroll only if needed */
       }
 
+      .control-box::-webkit-scrollbar {
+        width: 7px;
+      }
+
+      .control-box::-webkit-scrollbar-thumb {
+        background: #444;       /* dark thumb */
+        border-radius: 4px;
+      }
+
+      .control-box::-webkit-scrollbar-track {
+        background: transparent; /* keeps it clean */
+      }
+
+      
       .control-box #status {
         font-size: 13px;
       }

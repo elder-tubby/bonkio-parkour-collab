@@ -65,7 +65,7 @@ module.exports = {
     "🔥",
     "👩‍🍳",
   ],
-  getSymbolFromName: function (name) {
+  getSymbolFromName: (name) => {
     const normalizedName = name.toLowerCase();
 
     const symbolRules = {
@@ -91,6 +91,11 @@ module.exports = {
       salama: "⚡",
       otter: "🦦",
       duck: "🦆",
+      tractor: "🆓",
+      bear: "🧸",
+      cat: "🐈",
+      lemon: "🍋",
+      ez: "🐅",
     };
 
     for (const keyword in symbolRules) {
@@ -99,8 +104,8 @@ module.exports = {
       }
     }
     // Return a random symbol from the main array if no keyword matches
-    return this.PLAYER_SYMBOLS[
-      Math.floor(Math.random() * this.PLAYER_SYMBOLS.length)
+    return module.exports.PLAYER_SYMBOLS[
+      Math.floor(Math.random() * module.exports.PLAYER_SYMBOLS.length)
     ];
   },
 };

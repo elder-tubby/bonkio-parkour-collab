@@ -55,7 +55,7 @@ class UI {
   constructor() {
     this.elems = {};
     // consistent button width across rows
-    this.CONTROL_ELEMENT_WIDTH = "100px";
+    this.CONTROL_ELEMENT_WIDTH = "115px";
 
     // Controls for show/hide logic (keeps compatibility with previous code)
     this.LINE_CONTROLS = [
@@ -149,7 +149,7 @@ class UI {
     container.style.width = "100%";
     container.style.boxSizing = "border-box";
     // reduce overall vertical footprint
-    // container.style.padding = "6px 4px";
+    container.style.padding = "0px 4px";
 
     // Left column - EXACTLY 3 rows as requested
     const leftCol = document.createElement("div");
@@ -159,6 +159,7 @@ class UI {
     leftCol.style.width = "300px"; // fixed to keep alignment predictable
     leftCol.style.boxSizing = "border-box";
     leftCol.style.marginRight = "20px";
+    leftCol.style.paddingTop = "10px";
 
     // Row 1: draw mode button + paste map button (aligned)
     const leftRow1 = document.createElement("div");
@@ -189,8 +190,21 @@ class UI {
     pasteBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
     pasteBtn.style.boxSizing = "border-box";
 
+    const autoGenerateBtn = document.createElement("button");
+    autoGenerateBtn.id = "autoGenerateBtn";
+    autoGenerateBtn.textContent = "Auto-Generate";
+    autoGenerateBtn.title = "Generate a random map layout";
+    autoGenerateBtn.type = "button";
+    autoGenerateBtn.style.height = "26px";
+    autoGenerateBtn.style.padding = "4px 8px";
+    autoGenerateBtn.style.fontSize = "12px";
+    autoGenerateBtn.style.minWidth = this.CONTROL_ELEMENT_WIDTH;
+    autoGenerateBtn.style.boxSizing = "border-box";
+    this.elems.autoGenerateBtn = autoGenerateBtn;
+
     leftRow1.appendChild(drawModeBtn);
     leftRow1.appendChild(pasteBtn);
+    // leftRow1.appendChild(autoGenerateBtn);
 
     // Row 2: Delete and Type select
     const leftRow2 = document.createElement("div");
@@ -287,7 +301,7 @@ class UI {
     const rightCol = document.createElement("div");
     rightCol.style.display = "flex";
     rightCol.style.flexDirection = "column";
-    rightCol.style.gap = "6px"; // slightly smaller spacing
+    rightCol.style.gap = "3px"; // slightly smaller spacing
     rightCol.style.flex = "1";
     rightCol.style.minWidth = "320px";
     rightCol.style.boxSizing = "border-box";
@@ -300,6 +314,8 @@ class UI {
       row.style.justifyContent = "space-between";
       row.style.gap = "8px";
       row.style.width = "100%";
+      row.style.marginBottom = "1px";
+      
 
       const label = document.createElement("label");
       label.setAttribute("for", id);
@@ -333,7 +349,7 @@ class UI {
 
       const value = document.createElement("div");
       value.id = `${id}Value`;
-      value.style.width = "48px";
+      value.style.width = "20px";
       value.style.textAlign = "right";
       value.style.fontSize = "12px";
       value.innerText = input.value;

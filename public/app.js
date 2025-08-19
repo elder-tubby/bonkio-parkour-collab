@@ -99,7 +99,7 @@ function bindNetworkEvents() {
     if (UI.elems.spawnSizeValue) UI.elems.spawnSizeValue.innerText = mapSize;
   });
   Network.onChatMessage((msg) => UI.appendChat(msg));
-  Network.onChatError((errorMsg) => showToast(errorMsg));
+  Network.onChatError((errorMsg) => showToast(errorMsg, true));
   Network.onClearChat(() => UI.clearChat());
 }
 
