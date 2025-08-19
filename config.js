@@ -1,6 +1,6 @@
 // config.js
 module.exports = {
-  MAX_LOBBY_PLAYERS: 2,
+  MAX_LOBBY_PLAYERS: 8,
   EVENTS: {
     // Server -> Client
     CONNECT_WITH_ID: "connectWithId",
