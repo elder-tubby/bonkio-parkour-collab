@@ -31,6 +31,9 @@ let mouseDownTime = 0;
 const keysDown = new Set();
 let nudgeLoopId = null;
 
+// Track the drawing mode before shift was pressed
+let drawingModeBeforeShift = null;
+
 // --- Canvas Event Handlers ---
 function handleCanvasDown(e) {
   if (e.button !== 0 || e.target !== UI.elems.canvas) return;
@@ -438,6 +441,19 @@ function stopNudgeLoop() {
 
 function handleKeyUp(e) {
   keysDown.delete(e.key);
+  
+  // Handle shift key release to restore previous drawing mode
+  if (e.key === "Shift" && drawingModeBeforeShift !== null) {
+    State.set("drawingMode", drawingModeBeforeShift);
+    // Update button text
+    const btn = UI.elems.drawModeBtn;
+    if (btn) {
+      const capitalizedMode = drawingModeBeforeShift.charAt(0).toUpperCase() + drawingModeBeforeShift.slice(1);
+      btn.textContent = `Mode: ${capitalizedMode} (M)`;
+    }
+    drawingModeBeforeShift = null;
+  }
+  
   if (keysDown.size === 0) {
     stopNudgeLoop();
   }
@@ -448,6 +464,19 @@ function handleKeyDown(e) {
   if (active && (active.tagName === "INPUT" || active.tagName === "SELECT"))
     return;
   if (!State.get("gameActive")) return;
+
+  // Handle shift key for temporary select mode
+  if (e.key === "Shift" && !keysDown.has("Shift")) {
+    keysDown.add("Shift");
+    const currentMode = State.get("drawingMode");
+    if (currentMode !== "select") {
+      drawingModeBeforeShift = currentMode;
+      State.set("drawingMode", "select");
+      // Update button text
+      const btn = UI.elems.drawModeBtn;
+      if (btn) btn.textContent = "Mode: Select (M)";
+    }
+  }
 
   const key = e.key.toLowerCase();
   const selectedIds = State.get("selectedObjectIds");
@@ -785,12 +814,23 @@ export function bindUIEvents() {
   safeAddEvent(e.popupCloseBtn, "click", () => UI.hide("gameEndPopup"));
 
   safeAddEvent(e.drawModeBtn, "click", () => {
-    const modes = ["line", "poly", "select"];
+    const modes = ["line", "poly"]; // Exclude "select" from toggle cycle
     const currentMode = State.get("drawingMode") || "line";
-    const nextIndex = (modes.indexOf(currentMode) + 1) % modes.length;
+    
+    // If currently in select mode (from shift), use the mode before shift
+    const modeToToggleFrom = drawingModeBeforeShift || currentMode;
+    
+    const currentIndex = modes.indexOf(modeToToggleFrom);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % modes.length;
     const nextMode = modes[nextIndex];
+    
     State.set("drawingMode", nextMode);
     e.drawModeBtn.textContent = `Mode: ${nextMode.charAt(0).toUpperCase() + nextMode.slice(1)} (M)`;
+    
+    // If we were in shift-select mode, update the mode to return to
+    if (drawingModeBeforeShift !== null) {
+      drawingModeBeforeShift = nextMode;
+    }
 
     State.clearSelectedObjects();
     State.set("drawingShape", null);
