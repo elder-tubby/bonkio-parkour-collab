@@ -31,7 +31,12 @@ io.on("connection", (socket) => {
   socket.on(EVENTS.JOIN_LOBBY, (name) => {
     const result = lobby.addPlayer(socket.id, name);
     if (result.error) {
-      return socket.emit(EVENTS.LOBBY_NAME_TAKEN);
+      if (result.error === "lobbyFull") {
+        return socket.emit(EVENTS.LOBBY_FULL);
+      } else if (result.error === "duplicateName") {
+        return socket.emit(EVENTS.LOBBY_NAME_TAKEN);
+      }
+      return;
     }
     lobby.broadcastLobby();
     if (game.active) {

@@ -17,8 +17,7 @@ class LobbyManager {
     const lowerName = name.trim().toLowerCase();
 
     if (Object.keys(this.players).length >= MAX_LOBBY_PLAYERS ) {
-      // showToast("Sorry, the lobby is full.", true);
-      // return { error: "lobbyFull" }; // Or any error message you prefer
+      return { error: "lobbyFull" };
     }
 
     // Check for duplicate names
@@ -27,8 +26,7 @@ class LobbyManager {
     );
 
     if (isDuplicateName) {
-      // showToast("Name already taken!", true);
-      // return { error: "duplicateName" };
+      return { error: "duplicateName" };
     }
     // Check if player's name contains any of the keywords for specific symbols
     const symbol = getSymbolFromName(name);

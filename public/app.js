@@ -19,6 +19,9 @@ function main() {
 function bindNetworkEvents() {
   Network.onConnectWithId((id) => State.set("socketId", id));
 
+  Network.onLobbyFull(() => showToast("Sorry, the lobby is full.", true));
+  Network.onLobbyNameTaken(() => showToast("Name already taken!", true));
+
   Network.onLobbyUpdate(({ players, gameActive }) => {
     State.set("players", players || []);
     UI.updateLobby(players || []);
