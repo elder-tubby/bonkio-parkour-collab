@@ -4,7 +4,7 @@
  */
 
 const {MAX_LOBBY_PLAYERS, getSymbolFromName, EVENTS } = require("./config");
-const { showToast } = require("./public/utils-client");
+// const { showToast } = require("./public/utils-client");
 
 class LobbyManager {
   constructor(io, getGameActive = () => false) {
@@ -17,8 +17,8 @@ class LobbyManager {
     const lowerName = name.trim().toLowerCase();
 
     if (Object.keys(this.players).length >= MAX_LOBBY_PLAYERS ) {
-      showToast("Sorry, the lobby is full.", true);
-      return { error: "lobbyFull" }; // Or any error message you prefer
+      // showToast("Sorry, the lobby is full.", true);
+      // return { error: "lobbyFull" }; // Or any error message you prefer
     }
 
     // Check for duplicate names
@@ -27,8 +27,8 @@ class LobbyManager {
     );
 
     if (isDuplicateName) {
-      showToast("Name already taken!", true);
-      return { error: "duplicateName" };
+      // showToast("Name already taken!", true);
+      // return { error: "duplicateName" };
     }
     // Check if player's name contains any of the keywords for specific symbols
     const symbol = getSymbolFromName(name);
