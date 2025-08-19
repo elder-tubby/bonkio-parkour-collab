@@ -1,14 +1,7 @@
 import { EVENTS } from "./events.js";
 
-// Initialize socket variable
-let socket;
+const socket = window.io();
 
-// Check if the code is running in the browser
-if (typeof window !== 'undefined') {
-    socket = window.io();
-} else {
-    console.error("This code is intended to run in a browser environment.");
-}
 // ---- EMITTERS (Client -> Server) ----
 
 export function joinLobby(name) {
