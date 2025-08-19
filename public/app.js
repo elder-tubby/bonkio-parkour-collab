@@ -59,6 +59,10 @@ function bindNetworkEvents() {
   Network.onObjectsCreatedBatch((newObjects) => {
     if (Array.isArray(newObjects) && newObjects.length > 0) {
       State.set("objects", [...State.get("objects"), ...newObjects]);
+      State.set(
+        "selectedObjectIds",
+        newObjects.map((o) => o.id),
+      );
     }
   });
 
