@@ -1,9 +1,11 @@
 import { EVENTS } from "./events.js";
 
+// Initialize socket variable
+let socket;
+
 // Check if the code is running in the browser
 if (typeof window !== 'undefined') {
-    const socket = window.io();
-    // Your socket code here
+    socket = window.io();
 } else {
     console.error("This code is intended to run in a browser environment.");
 }
