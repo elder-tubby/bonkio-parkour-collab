@@ -248,12 +248,12 @@ function handleCanvasMove(e) {
 
     // Allow spawn to be partially off the canvas but not more than half
     const x = Math.max(
-      -radius,          // Half off the left
-      Math.min(width + radius, point.x) // Half off the right
+      -radius, // Half off the left
+      Math.min(width + radius, point.x), // Half off the right
     );
     const y = Math.max(
-      -radius,          // Half off the top
-      Math.min(height + radius, point.y) // Half off the bottom
+      -radius, // Half off the top
+      Math.min(height + radius, point.y), // Half off the bottom
     );
 
     State.set("spawnCircle", { ...spawn, x, y });
@@ -269,20 +269,18 @@ function handleCanvasMove(e) {
 
     // Allow capZone to be partially off the canvas but not more than half on each edge
     const x = Math.max(
-      -halfWidth,                   // Half off the left
-      Math.min(canvasWidth - halfWidth, point.x) // Half off the right
+      -halfWidth, // Half off the left
+      Math.min(canvasWidth - halfWidth, point.x), // Half off the right
     );
     const y = Math.max(
-      -halfHeight,                  // Half off the top
-      Math.min(canvasHeight - halfHeight, point.y) // Half off the bottom
+      -halfHeight, // Half off the top
+      Math.min(canvasHeight - halfHeight, point.y), // Half off the bottom
     );
 
     // Update the capZone position, adjusting for the offset
     State.set("capZone", { ...cz, x, y });
     return;
   }
-
-
 
   if (isDraggingObject) {
     const preview = State.get("draggingPreview");
@@ -441,19 +439,21 @@ function stopNudgeLoop() {
 
 function handleKeyUp(e) {
   keysDown.delete(e.key);
-  
+
   // Handle shift key release to restore previous drawing mode
   if (e.key === "Shift" && drawingModeBeforeShift !== null) {
     State.set("drawingMode", drawingModeBeforeShift);
     // Update button text
     const btn = UI.elems.drawModeBtn;
     if (btn) {
-      const capitalizedMode = drawingModeBeforeShift.charAt(0).toUpperCase() + drawingModeBeforeShift.slice(1);
+      const capitalizedMode =
+        drawingModeBeforeShift.charAt(0).toUpperCase() +
+        drawingModeBeforeShift.slice(1);
       btn.textContent = `Mode: ${capitalizedMode} (M)`;
     }
     drawingModeBeforeShift = null;
   }
-  
+
   if (keysDown.size === 0) {
     stopNudgeLoop();
   }
@@ -816,17 +816,18 @@ export function bindUIEvents() {
   safeAddEvent(e.drawModeBtn, "click", () => {
     const modes = ["line", "poly"]; // Exclude "select" from toggle cycle
     const currentMode = State.get("drawingMode") || "line";
-    
+
     // If currently in select mode (from shift), use the mode before shift
     const modeToToggleFrom = drawingModeBeforeShift || currentMode;
-    
+
     const currentIndex = modes.indexOf(modeToToggleFrom);
-    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % modes.length;
+    const nextIndex =
+      currentIndex === -1 ? 0 : (currentIndex + 1) % modes.length;
     const nextMode = modes[nextIndex];
-    
+
     State.set("drawingMode", nextMode);
     e.drawModeBtn.textContent = `Mode: ${nextMode.charAt(0).toUpperCase() + nextMode.slice(1)} (M)`;
-    
+
     // If we were in shift-select mode, update the mode to return to
     if (drawingModeBeforeShift !== null) {
       drawingModeBeforeShift = nextMode;
