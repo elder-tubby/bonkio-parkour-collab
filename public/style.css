@@ -351,9 +351,10 @@ canvas {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
+  gap: 30px;
   width: 100%;
   padding: 8px;
+  padding-bottom: 0px;
 }
 .editor-col {
   flex: 1; /* Makes columns equal width */
@@ -365,8 +366,8 @@ canvas {
 .editor-col-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 10px;
+  gap: 10px;
+  padding-top: 0px;
 }
 .editor-col-right {
   display: flex;
@@ -524,6 +525,61 @@ canvas {
 }
 .popup-actions .btn {
   padding: 0.5rem 0.9rem;
+}
+
+/* ... add this at the end of the file ... */
+
+/* ADMIN PANEL */
+.admin-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.admin-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.admin-login-form input {
+  font-size: 13px;
+}
+.admin-section h4 {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--muted-border);
+  padding-bottom: 0.3rem;
+  color: #ccc;
+}
+.admin-player-list,
+.admin-ban-list {
+  list-style: none;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 5px; /* space for scrollbar */
+}
+.admin-player-item,
+.admin-ban-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.admin-player-actions {
+  display: flex;
+  gap: 4px;
+}
+.admin-player-actions .btn,
+.admin-ban-item .btn {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.admin-player-name.muted {
+  text-decoration: line-through;
+  color: #aaa;
+}
+.admin-player-name.frozen {
+  font-style: italic;
+  color: #87ceeb; /* skyblue */
 }
 
 /* RESPONSIVE */

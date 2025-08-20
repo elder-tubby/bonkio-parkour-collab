@@ -764,7 +764,9 @@ function handleKeyDown(e) {
       }
       return;
     case "c":
-      copyLineInfo();
+      if (e.metaKey || e.ctrlKey) {
+        copyLineInfo();
+      }
       return;
     case "v":
       if (e.metaKey || e.ctrlKey) {
@@ -797,12 +799,12 @@ function handleKeyDown(e) {
 
   if (key === "[") {
     e.preventDefault();
-    Network.reorderObjects({ ids: selectedIds, toBack });
+    createReorderHandler(true)(); // <-- invoke the returned function
     return;
   }
   if (key === "]") {
     e.preventDefault();
-    Network.reorderObjects({ ids: selectedIds, toBack });
+    createReorderHandler(false)(); // <-- invoke the returned function
     return;
   }
 
@@ -905,7 +907,12 @@ function handleKeyDown(e) {
     }
   });
 }
-
+const createReorderHandler = (toBack) => () => {
+  const selectedIds = State.get("selectedObjectIds");
+  if (selectedIds.length > 0) {
+    Network.reorderObjects({ ids: selectedIds, toBack });
+  }
+};
 function createSliderHandlerFactory(elems) {
   return (propName, type) => {
     const isPoly = type === "poly";
@@ -947,7 +954,7 @@ export function bindUIEvents() {
     if (name) {
       Network.joinLobby(name);
       State.set("username", name);
-    }
+      if (e.readyCheckbox) e.readyCheckbox.checked = false;     }
   });
   safeAddEvent(e.usernameInput, "keydown", (ev) => {
     if (ev.key === "Enter") e.joinBtn.click();
@@ -983,18 +990,28 @@ export function bindUIEvents() {
   sliderHandler("a", "poly"); // 'a' is for angle
   sliderHandler("scale", "poly");
 
-  const createSelectHandler = (type) => (ev) => {
+  // single select handler (remove line/poly separate handlers)
+  const createSelectHandler = () => (ev) => {
     const selectedIds = State.get("selectedObjectIds");
-    const propName = type === "line" ? "lineType" : "polyType";
-    if (selectedIds.length > 0) {
-      selectedIds.forEach((id) => {
-        Network.updateObject({ id, [propName]: ev.target.value });
-      });
-    }
+    const objects = State.get("objects");
+
+    if (!selectedIds || selectedIds.length === 0) return;
+
+    selectedIds.forEach((id) => {
+      const obj = objects.find((o) => o.id === id);
+      if (!obj) return;
+
+      // infer property name based on object type
+      const propName = obj.type === "line" ? "lineType" : "polyType";
+
+      Network.updateObject({ id, [propName]: ev.target.value });
+    });
   };
 
-  safeAddEvent(e.lineTypeSelect, "change", createSelectHandler("line"));
-  safeAddEvent(e.polyTypeSelect, "change", createSelectHandler("poly"));
+  // hook it up once
+  safeAddEvent(e.typeSelect, "change", createSelectHandler());
+
+  safeAddEvent(e.typeSelect, "change", createSelectHandler());
 
   const createDeleteHandler = () => () => {
     const selectedIds = State.get("selectedObjectIds");
@@ -1003,16 +1020,7 @@ export function bindUIEvents() {
     }
   };
 
-  safeAddEvent(e.deleteLineBtn, "click", createDeleteHandler());
-  safeAddEvent(e.deletePolyBtn, "click", createDeleteHandler());
-
-  const createReorderHandler = (toBack) => () => {
-    const selectedIds = State.get("selectedObjectIds");
-    if (selectedIds.length > 0) {
-      Network.reorderObjects({ ids: selectedIds, toBack });
-
-    }
-  };
+  safeAddEvent(e.deleteBtn, "click", createDeleteHandler());
 
   safeAddEvent(e.toFrontBtn, "click", createReorderHandler(false));
   safeAddEvent(e.toBackBtn, "click", createReorderHandler(true));
@@ -1056,8 +1064,6 @@ export function bindUIEvents() {
     State.set("drawingShape", null);
   });
 
-
-
   safeAddEvent(e.autoGenerateBtn, "click", () => {
     // Safety Check: Do not run if objects already exist.
     if (State.get("objects").length > 0) {
@@ -1075,7 +1081,6 @@ export function bindUIEvents() {
     }
   });
 
-  // In handlers.js, at the end of the bindUIEvents function, add this:
   safeAddEvent(e.chatAudioBtn, "click", () => {
     const isSoundOn = !State.get("isChatSoundOn");
     State.set("isChatSoundOn", isSoundOn);

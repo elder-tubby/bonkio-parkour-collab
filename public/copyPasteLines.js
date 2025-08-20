@@ -377,8 +377,8 @@ export async function pasteLines() {
       const scaleY = GH / 500;
 
       const gameVertices = obj.vertices.map((v) => ({
-        x: v.x / ((obj.scale || 1) * scaleX),
-        y: v.y / ((obj.scale || 1) * scaleY),
+        x: v.x,
+        y: v.y,
       }));
 
       let polyType = "none";
@@ -498,3 +498,5 @@ function externalToGame(extX, extY) {
 
   return { x: gameX, y: gameY };
 }
+
+  

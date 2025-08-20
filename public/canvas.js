@@ -44,6 +44,7 @@ class Canvas {
         ctx.translate(c.x, c.y);
         ctx.rotate((a * Math.PI) / 180);
         ctx.scale(scale || 1, scale || 1);
+        console.log("Scale value in canvas:", scale);
 
         let baseColor = "rgb(255, 255, 255)";
         if (polyType === "death") baseColor = "rgb(255, 0, 0)";

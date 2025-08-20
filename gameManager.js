@@ -386,6 +386,7 @@ class GameManager {
       this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly),
     );
   }
+  
   handleObjectsReorder(playerId, { ids, toBack }) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
       return;
@@ -469,7 +470,7 @@ class GameManager {
 
       const base = {
         id: uuidv4(),
-        playerId,
+        playerId: "",
         username: player.name,
         symbol: " ", // Pasted objects have a blank symbol
         createdAt: Date.now(),
@@ -497,6 +498,7 @@ class GameManager {
         this._validPoint(objData.c) &&
         Array.isArray(objData.v)
       ) {
+        
         newObjects.push({
           ...base,
           type: "poly",
@@ -508,7 +510,7 @@ class GameManager {
         });
       }
     }
-
+    
     if (newObjects.length > 0) {
       this.objects = newObjects;
       if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);

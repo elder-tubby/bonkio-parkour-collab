@@ -16,6 +16,36 @@ function main() {
   Canvas.draw();
 }
 
+// Single source of truth: if this is not null, a notification session is active.
+let notificationInterval = null;
+const originalTitle = document.title;
+const notificationTitle = "💬 New Message!";
+
+const notificationSound = new Audio("/sounds/chat.wav");
+notificationSound.preload = "auto";
+notificationSound.volume = 0.5;
+
+/**
+ * Play a short join sound if any NEW player (other than this client) appears
+ * in `newPlayers` that wasn't in `prevPlayers`.
+ */
+function playJoinSoundIfNew(prevPlayers = [], newPlayers = []) {
+  try {
+    const prevIds = new Set((prevPlayers || []).map((p) => p.id));
+    const myId = State.get("socketId");
+    const newJoin = (newPlayers || []).some(
+      (p) => p?.id && !prevIds.has(p.id) && p.id !== myId,
+    );
+    if (!newJoin) return;
+    notificationSound.currentTime = 0;
+    notificationSound.play().catch(() => {
+      /* ignore play failures (auto-play policy, etc.) */
+    });
+  } catch (e) {
+    console.error("playJoinSoundIfNew error:", e);
+  }
+}
+
 function bindNetworkEvents() {
   Network.onConnectWithId((id) => State.set("socketId", id));
 
@@ -23,11 +53,15 @@ function bindNetworkEvents() {
   Network.onLobbyNameTaken(() => showToast("Name already taken!", true));
 
   Network.onLobbyUpdate(({ players, gameActive }) => {
+    const prevPlayers = State.get("players") || [];
+    playJoinSoundIfNew(prevPlayers, players || []);
+
     State.set("players", players || []);
     UI.updateLobby(players || []);
     const me = (players || []).find((p) => p.id === State.get("socketId"));
     if (UI.elems.readyCheckbox) UI.elems.readyCheckbox.disabled = !me;
     State.set("gameActive", !!gameActive);
+    
   });
 
   Network.onGameInProgress(() =>
@@ -36,8 +70,12 @@ function bindNetworkEvents() {
   Network.onStartGame(initializeGameView);
   Network.onGameSnapshot(initializeGameView);
   Network.onGameUpdate(({ players, votes, totalParticipants }) => {
+    const prevPlayers = State.get("players") || [];
+    playJoinSoundIfNew(prevPlayers, players || []);
+
     UI.updatePlayers(players || []);
     UI.setVote(votes ?? 0, totalParticipants ?? 0);
+
   });
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
@@ -68,53 +106,78 @@ function bindNetworkEvents() {
       );
     }
   });
-  // In app.js, add these helper functions near the top of the file
-  let notificationInterval = null;
-  const originalTitle = document.title;
-  const chatSound = new Audio("/sounds/chat.wav");
-  chatSound.volume = 0.5;
 
-  function playNotificationSound() {
-    if (State.get("isChatSoundOn")) {
-      chatSound.play().catch((e) => console.error("Audio play failed:", e));
-    }
-  }
+  // ---------- app.js (notification block) ----------
 
-  function updateTabNotification() {
-    if (!document.hidden) {
-      clearInterval(notificationInterval);
-      notificationInterval = null;
-      document.title = originalTitle;
-      return;
-    }
-
-    if (notificationInterval) return; // Already running
-
-    let isToggled = false;
+  function startTitleFlashing() {
+    // This function is now simpler because the guard is in the caller.
+    let showOriginal = false;
     notificationInterval = setInterval(() => {
-      document.title = isToggled ? originalTitle : "💬 New Message!";
-      isToggled = !isToggled;
+      document.title = showOriginal ? originalTitle : notificationTitle;
+      showOriginal = !showOriginal;
     }, 1000);
   }
 
-  // Still in app.js, modify the 'onChatMessage' network event listener
-  Network.onChatMessage((msg) => {
-
-    UI.appendChat(msg);
-    if (document.hidden) {
-      playNotificationSound();
-      updateTabNotification();
-    }
-  });
-
-  // Add a listener to clear the notification when the user returns to the tab
-  window.addEventListener("focus", () => {
+  function stopTitleFlashingAndRestoreTitle() {
     if (notificationInterval) {
       clearInterval(notificationInterval);
       notificationInterval = null;
-      document.title = originalTitle;
+    }
+    document.title = originalTitle;
+  }
+
+  function startNotificationIfHidden() {
+    // 1. Only run if the tab is hidden AND a notification is not already active.
+    //    This check now prevents all race conditions and duplicate sounds.
+    if (!document.hidden || notificationInterval) {
+      return;
+    }
+
+    // 2. Start the notification session. This immediately sets `notificationInterval`,
+    //    preventing this function from running again until the user returns.
+    startTitleFlashing();
+
+    // 3. Check if sound is enabled. With simpler logic, this check now works reliably.
+    if (!State.get("isChatSoundOn")) {
+      return;
+    }
+
+    // 4. Play the sound.
+    try {
+      notificationSound.currentTime = 0; // Rewind the sound to the beginning
+      notificationSound.play().catch((err) => {
+        console.error("Notification audio play failed:", err);
+      });
+    } catch (e) {
+      console.error("Error trying to play notification sound:", e);
+    }
+  }
+
+  // This handler remains unchanged but will now behave correctly.
+  Network.onChatMessage((msg) => {
+    UI.appendChat(msg);
+    startNotificationIfHidden();
+  });
+
+  function resetNotificationsForNextSession() {
+    // When the user returns, stop the flashing and sound to reset the state.
+    stopTitleFlashingAndRestoreTitle();
+    try {
+      notificationSound.pause();
+      notificationSound.currentTime = 0;
+    } catch (e) {
+      // Ignore errors, e.g., if the sound was never played.
+    }
+  }
+
+  // These event listeners also remain unchanged.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      resetNotificationsForNextSession();
     }
   });
+  window.addEventListener("focus", resetNotificationsForNextSession);
+
   Network.onObjectUpdated((updatedObject) => {
     const objects = State.get("objects").map((o) =>
       o.id === updatedObject.id ? updatedObject : o,
@@ -138,9 +201,19 @@ function bindNetworkEvents() {
     State.removeSelectedObjectId(id);
   });
 
-  Network.onObjectsReordered((reorderedObjects) =>
-    State.set("objects", reorderedObjects || []),
-  );
+  Network.onObjectsReordered((reorderedObjects) => {
+    if (Array.isArray(reorderedObjects)) {
+      reorderedObjects.forEach((obj) => {
+        if (obj.type === "poly") {
+          console.log("Poly object:", obj, "scale:", obj.scale);
+        } else {
+          console.log("Object:", obj);
+        }
+      });
+    }
+    State.set("objects", reorderedObjects || []);
+  });
+
 
   Network.onSpawnCircleUpdate((spawnCircle) =>
     State.set("spawnCircle", spawnCircle),

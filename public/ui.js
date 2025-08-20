@@ -24,6 +24,7 @@ const SELECTORS = {
   lobbyMessage: "#lobbyMessage",
   hideUsernamesCheckbox: "#hideUsernamesCheckbox",
   controlBox: ".control-box", // Selector for the main container
+  autoGenerateBtn: "#autoGenerateBtn",
 };
 
 class UI {
@@ -96,29 +97,31 @@ class UI {
     // Row 2: Delete, Type Select
     const leftRow2 = document.createElement("div");
     leftRow2.className = "editor-row";
+    leftRow2.id = "selectionActionsRow"; // Add this ID
     const deleteBtn = this._createButton(
       "deleteBtn",
       "Delete",
       "Delete selected object(s)",
-      true,
+      false,
     );
-    const typeSelect = this._createSelect("typeSelect", "Object type", true);
+    const typeSelect = this._createSelect("typeSelect", "Object type", false);
     leftRow2.append(deleteBtn, typeSelect);
 
     // Row 3: Z-order
     const leftRow3 = document.createElement("div");
     leftRow3.className = "editor-row";
+    leftRow3.id = "zOrderActionsRow"; // Add this ID
     const toFrontBtn = this._createButton(
       "toFrontBtn",
       "Front",
       "Bring to front",
-      true,
+      false,
     );
     const toBackBtn = this._createButton(
       "toBackBtn",
       "Back",
       "Send to back",
-      true,
+      false,
     );
     leftRow3.append(toFrontBtn, toBackBtn);
 
@@ -223,9 +226,14 @@ class UI {
 
     // Enable/disable buttons based on selection
     const isSelection = count > 0;
-    ["toFrontBtn", "toBackBtn", "deleteBtn", "typeSelect"].forEach((key) => {
-      if (this.elems[key]) this.elems[key].disabled = !isSelection;
-    });
+
+    // Hide or show the action rows based on selection
+    if (this.elems.selectionActionsRow) {
+      this.elems.selectionActionsRow.classList.toggle("hidden", !isSelection);
+    }
+    if (this.elems.zOrderActionsRow) {
+      this.elems.zOrderActionsRow.classList.toggle("hidden", !isSelection);
+    }
   }
 
   show(selectorKey) {
@@ -331,6 +339,8 @@ class UI {
       "typeSelect",
       "toFrontBtn",
       "toBackBtn",
+      "selectionActionsRow", // Add this
+      "zOrderActionsRow", // Add this
       "spawnSizeSlider",
       "spawnSizeValue",
       "lineWidthSlider",
@@ -375,10 +385,12 @@ class UI {
     row.className = "slider-row";
     if (className) row.classList.add(className);
 
+    const valueId = id.replace("Slider", "Value"); // Correctly generate the value ID
+
     row.innerHTML = `
         <label for="${id}">${labelText}</label>
         <input type="range" id="${id}" min="${min}" max="${max}" value="${defaultVal}">
-        <span id="${id}Value" class="slider-value">${defaultVal}</span>
+        <span id="${valueId}" class="slider-value">${defaultVal}</span>
     `;
     return row;
   }
