@@ -33,8 +33,8 @@ export function deleteObject(objectId) {
   socket.emit(EVENTS.DELETE_OBJECT, objectId);
 }
 
-export function reorderObject(payload) {
-  socket.emit(EVENTS.REORDER_OBJECT, payload);
+export function reorderObjects({ ids, toBack }) {
+  socket.emit(EVENTS.REORDER_OBJECTS, { ids, toBack });
 }
 
 export function updateObject(payload) {
@@ -116,6 +116,7 @@ export function onObjectDeleted(cb) {
 export function onObjectsReordered(cb) {
   socket.on(EVENTS.OBJECTS_REORDERED, cb);
 }
+
 
 // Map Objects
 export function onSpawnCircleUpdate(cb) {

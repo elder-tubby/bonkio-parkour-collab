@@ -46,76 +46,76 @@ function isPointInPolygon(point, vertices) {
  * @param {Array<Object>} objects The array of all line and polygon objects.
  * @returns {string|null} The ID of the hit object, or null if none was hit.
  */
-export function getHitObjectId(point, objects) {
-  // Iterate backwards to check top-most objects first
-  for (let i = objects.length - 1; i >= 0; i--) {
-    const obj = objects[i];
-    const lobby = State.get("players") || [];
-    // --- FIX --- Use 'socketId' for the current player's ID for consistency
-    const currentPlayerId = State.get("socketId");
-    
-    const presentIds = new Set(lobby.map((p) => p.id));
+// export function getHitObjectId(point, objects) {
+//   // Iterate backwards to check top-most objects first
+//   for (let i = objects.length - 1; i >= 0; i--) {
+//     const obj = objects[i];
+//     const lobby = State.get("players") || [];
+//     // --- FIX --- Use 'socketId' for the current player's ID for consistency
+//     const currentPlayerId = State.get("socketId");
 
-    const ownerId = obj.playerId;
-    const ownerPresent = presentIds.has(ownerId);
-    if (obj.type === "poly") {
-      const { c, v, a } = obj;
+//     const presentIds = new Set(lobby.map((p) => p.id));
 
-      // Perform inverse transformation on the click point
-      const angleRad = -a * (Math.PI / 180); // Negative angle for inverse rotation
-      const cos = Math.cos(angleRad);
-      const sin = Math.sin(angleRad);
+//     const ownerId = obj.playerId;
+//     const ownerPresent = presentIds.has(ownerId);
+//     if (obj.type === "poly") {
+//       const { c, v, a } = obj;
 
-      // 1. Translate point to be relative to polygon's center
-      const translatedX = point.x - c.x;
-      const translatedY = point.y - c.y;
+//       // Perform inverse transformation on the click point
+//       const angleRad = -a * (Math.PI / 180); // Negative angle for inverse rotation
+//       const cos = Math.cos(angleRad);
+//       const sin = Math.sin(angleRad);
 
-      // 2. Rotate the translated point
-      const rotatedX = translatedX * cos - translatedY * sin;
-      const rotatedY = translatedX * sin + translatedY * cos;
+//       // 1. Translate point to be relative to polygon's center
+//       const translatedX = point.x - c.x;
+//       const translatedY = point.y - c.y;
 
-      // 3. Check if the transformed point is inside the polygon's local vertices
-      if (isPointInPolygon({ x: rotatedX, y: rotatedY }, v)) {
-        if (ownerId === currentPlayerId || !ownerPresent) {
-          return obj.id;
-        }
-      }
-    } else if (obj.type === "line") {
-      const start = obj.start;
-      const end = computeEnd(obj);
+//       // 2. Rotate the translated point
+//       const rotatedX = translatedX * cos - translatedY * sin;
+//       const rotatedY = translatedX * sin + translatedY * cos;
 
-      const dx = end.x - start.x;
-      const dy = end.y - start.y;
-      const length = Math.hypot(dx, dy);
+//       // 3. Check if the transformed point is inside the polygon's local vertices
+//       if (isPointInPolygon({ x: rotatedX, y: rotatedY }, v)) {
+//         if (ownerId === currentPlayerId || !ownerPresent) {
+//           return obj.id;
+//         }
+//       }
+//     } else if (obj.type === "line") {
+//       const start = obj.start;
+//       const end = computeEnd(obj);
 
-      // Rotate point into line's local coordinate space
-      const angle = Math.atan2(dy, dx);
-      const cos = Math.cos(-angle);
-      const sin = Math.sin(-angle);
+//       const dx = end.x - start.x;
+//       const dy = end.y - start.y;
+//       const length = Math.hypot(dx, dy);
 
-      const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
-      const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
+//       // Rotate point into line's local coordinate space
+//       const angle = Math.atan2(dy, dx);
+//       const cos = Math.cos(-angle);
+//       const sin = Math.sin(-angle);
 
-      const lineHeight = typeof obj.height === "number" ? obj.height : 4;
+//       const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
+//       const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
 
-      // Check if inside the rectangle bounds
-      const halfH = lineHeight / 2;
-      if (
-        localX >= 0 &&
-        localX <= length &&
-        localY >= -halfH &&
-        localY <= halfH
-      ) {
-        // Allow selection if the user is the owner OR if the owner is not in the game
-        if (ownerId === currentPlayerId || !ownerPresent) {
-          return obj.id;
-        }
-      }
-    }
-  }
+//       const lineHeight = typeof obj.height === "number" ? obj.height : 4;
 
-  return null;
-}
+//       // Check if inside the rectangle bounds
+//       const halfH = lineHeight / 2;
+//       if (
+//         localX >= 0 &&
+//         localX <= length &&
+//         localY >= -halfH &&
+//         localY <= halfH
+//       ) {
+//         // Allow selection if the user is the owner OR if the owner is not in the game
+//         if (ownerId === currentPlayerId || !ownerPresent) {
+//           return obj.id;
+//         }
+//       }
+//     }
+//   }
+
+//   return null;
+// }
 
 export function updateLineTypeUI(type) {
   const select = document.getElementById("lineTypeSelect");
@@ -355,7 +355,12 @@ export function getHoveredObject(point, objects) {
       const lineHeight = typeof obj.height === "number" ? obj.height : 4;
       const halfH = lineHeight / 2;
 
-      if (localX >= 0 && localX <= length && localY >= -halfH && localY <= halfH) {
+      if (
+        localX >= 0 &&
+        localX <= length &&
+        localY >= -halfH &&
+        localY <= halfH
+      ) {
         return obj;
       }
     }
@@ -373,7 +378,7 @@ export function handleUndoLastObject() {
   // **FIX**: Filter for the user's objects that have a creation timestamp,
   // then sort by that timestamp to find the most recent one.
   const myLastObject = objects
-    .filter(obj => obj.playerId === myId && obj.createdAt)
+    .filter((obj) => obj.playerId === myId && obj.createdAt)
     .sort((a, b) => b.createdAt - a.createdAt)[0];
 
   if (myLastObject) {
@@ -486,4 +491,63 @@ export function isObjectInSelectionBox(obj, box) {
 
   // default: not selectable by marquee
   return false;
+}
+
+// This function should replace your existing getHitObjectId logic.
+// You can place it in utils-client.js and import it, or add it directly to handlers.js.
+
+/**
+ * Calculates the absolute-coordinate vertices of a polygon object.
+ * @param {object} obj The polygon object with properties c, a, scale, v.
+ * @returns {Array<{x: number, y: number}>} An array of vertex points in world coordinates.
+ */
+function getAbsoluteVertices(obj) {
+  const a = obj.a || 0;
+  const s = obj.scale || 1;
+  const r = (a * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+
+  return (obj.v || []).map((lv) => {
+    const scaledX = lv.x * s;
+    const scaledY = lv.y * s;
+    const rotatedX = scaledX * cos - scaledY * sin;
+    const rotatedY = scaledX * sin + scaledY * cos;
+    return { x: obj.c.x + rotatedX, y: obj.c.y + rotatedY };
+  });
+}
+
+// This is the new getHitObjectId function
+export function getHitObjectId(point, objects) {
+  // Iterate backwards to select objects on top first
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i];
+    if (obj.type === "poly") {
+      const absoluteVertices = getAbsoluteVertices(obj);
+      if (isPointInPolygon(point, absoluteVertices)) {
+        return obj.id;
+      }
+    } else if (obj.type === "line") {
+      // Your existing line hit detection logic here...
+      // For example:
+      const dist = distanceToLineSegment(point, obj.start, obj.end);
+      const thickness = (obj.height || 4) / 2 + 3; // Add buffer for easier clicking
+      if (dist < thickness) {
+        return obj.id;
+      }
+    }
+  }
+  return null;
+}
+
+// You will also need a distanceToLineSegment helper if you don't have one
+function distanceToLineSegment(p, v, w) {
+  const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+  if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(
+    p.x - (v.x + t * (w.x - v.x)),
+    p.y - (v.y + t * (w.y - v.y)),
+  );
 }

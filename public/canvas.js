@@ -2,6 +2,20 @@
 import State from "./state.js";
 import UI from "./ui.js";
 
+function computeAbsoluteVerticesForCanvas(obj) {
+  const a = obj.a || 0;
+  const s = obj.scale || 1;
+  return (obj.v || []).map((lv) => {
+    const scaled = { x: lv.x * s, y: lv.y * s };
+    const r = (a * Math.PI) / 180;
+    const cos = Math.cos(r);
+    const sin = Math.sin(r);
+    const rotatedX = scaled.x * cos - scaled.y * sin;
+    const rotatedY = scaled.x * sin + scaled.y * cos;
+    return { x: obj.c.x + rotatedX, y: obj.c.y + rotatedY };
+  });
+}
+
 class Canvas {
   static draw() {
     const { canvas, ctx } = UI.elems;
@@ -111,6 +125,58 @@ class Canvas {
       }
     });
 
+    // Draw vertex handles for selec  ted polygons (use draggingPreview objects if present)
+    const selectedIds = State.get("selectedObjectIds") || [];
+    const vertexDragState = State.get("vertexDrag");
+
+    selectedIds.forEach((selId) => {
+      // Prefer preview object for live feedback if available
+      let obj = State.get("objects").find((o) => o.id === selId);
+      if (preview && preview.objects) {
+        const pObj = preview.objects.find((po) => po.id === selId);
+        if (pObj) obj = pObj;
+      }
+      if (!obj || obj.type !== "poly") return;
+
+      // Compute absolute vertices to draw handles
+      const absVerts = computeAbsoluteVerticesForCanvas(obj);
+
+      ctx.save();
+      for (let i = 0; i < absVerts.length; i++) {
+        const pt = absVerts[i];
+
+        // If there is a vertexDrag state, and this is the object being dragged, highlight appropriately
+        let isActive = false;
+        if (vertexDragState && vertexDragState.objectId === selId) {
+          // If the vertexDragState contains currentAbsVerts, prefer that (live)
+          if (
+            vertexDragState.currentAbsVerts &&
+            vertexDragState.currentAbsVerts[i]
+          ) {
+            // override pt with live computed position
+            const live = vertexDragState.currentAbsVerts[i];
+            ctx.beginPath();
+            ctx.arc(live.x, live.y, 7, 0, Math.PI * 2);
+          } else {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2);
+          }
+          isActive = vertexDragState.vertexIndex === i;
+        } else {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+        }
+
+        // Fill + stroke for visibility
+        ctx.fillStyle = isActive ? "yellow" : "white";
+        ctx.fill();
+        ctx.lineWidth = isActive ? 2 : 1.5;
+        ctx.strokeStyle = "black";
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+
     // --- Draw Dragging Previews ---
     if (preview && preview.objects) {
       preview.objects.forEach((p_obj) => {
@@ -174,7 +240,6 @@ class Canvas {
     }
     // --- end dotted path ---
 
-    
     // --- Draw new shape in progress ---
     const drawingShape = State.get("drawingShape");
     if (drawingShape) {

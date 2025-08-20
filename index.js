@@ -67,9 +67,10 @@ io.on("connection", (socket) => {
   socket.on(EVENTS.DELETE_OBJECT, (objectId) =>
     game.handleObjectDeletion(socket.id, objectId),
   );
-  socket.on(EVENTS.REORDER_OBJECT, (reorderData) =>
-    game.handleObjectReorder(socket.id, reorderData),
+  socket.on(EVENTS.REORDER_OBJECTS, (data) =>
+    game.handleObjectsReorder(socket.id, data),
   );
+
   socket.on(EVENTS.PASTE_LINES, (pasteData) =>
     game.handlePasteLines(socket.id, pasteData),
   );

@@ -3,8 +3,12 @@
  * Tracks everyone in the lobby, their "ready" state, and assigns unique symbols.
  */
 
-const {MAX_LOBBY_PLAYERS, getSymbolFromName, EVENTS } = require("./config");
-
+const {
+  MAX_LOBBY_PLAYERS,
+  getSymbolFromName,
+  EVENTS,
+  PLAYER_SYMBOLS,
+} = require("./config");
 
 class LobbyManager {
   constructor(io, getGameActive = () => false) {
@@ -13,25 +17,38 @@ class LobbyManager {
     this.getGameActive = getGameActive;
   }
 
+  getUsedSymbols() {
+    return new Set(Object.values(this.players).map((p) => p.symbol));
+  }
+
   addPlayer(socketId, name) {
     const lowerName = name.trim().toLowerCase();
 
-    if (Object.keys(this.players).length >= MAX_LOBBY_PLAYERS ) {
+    if (Object.keys(this.players).length >= MAX_LOBBY_PLAYERS) {
       return { error: "lobbyFull" };
     }
 
-    // Check for duplicate names
     const isDuplicateName = Object.values(this.players).some(
       (p) => p.name.trim().toLowerCase() === lowerName,
     );
-
     if (isDuplicateName) {
       return { error: "duplicateName" };
     }
-    // Check if player's name contains any of the keywords for specific symbols
-    const symbol = getSymbolFromName(name);
 
-    // Assign symbol to the player and create their entry
+    const usedSymbols = this.getUsedSymbols();
+    let symbol = getSymbolFromName(name);
+
+    // If chosen symbol already taken, pick an unused one from PLAYER_SYMBOLS
+    if (usedSymbols.has(symbol)) {
+      const available = PLAYER_SYMBOLS.filter((s) => !usedSymbols.has(s));
+      if (available.length > 0) {
+        symbol = available[Math.floor(Math.random() * available.length)];
+      } else {
+        // fallback when all symbols are used
+        symbol = `P${Object.keys(this.players).length + 1}`;
+      }
+    }
+
     this.players[socketId] = {
       id: socketId,
       name: name.trim(),
@@ -40,7 +57,6 @@ class LobbyManager {
       inGame: false,
     };
 
-    // Don't broadcast here; let the caller decide when to broadcast.
     return { success: true };
   }
 

@@ -68,7 +68,53 @@ function bindNetworkEvents() {
       );
     }
   });
+  // In app.js, add these helper functions near the top of the file
+  let notificationInterval = null;
+  const originalTitle = document.title;
+  const chatSound = new Audio("/sounds/chat.wav");
+  chatSound.volume = 0.5;
 
+  function playNotificationSound() {
+    if (State.get("isChatSoundOn")) {
+      chatSound.play().catch((e) => console.error("Audio play failed:", e));
+    }
+  }
+
+  function updateTabNotification() {
+    if (!document.hidden) {
+      clearInterval(notificationInterval);
+      notificationInterval = null;
+      document.title = originalTitle;
+      return;
+    }
+
+    if (notificationInterval) return; // Already running
+
+    let isToggled = false;
+    notificationInterval = setInterval(() => {
+      document.title = isToggled ? originalTitle : "💬 New Message!";
+      isToggled = !isToggled;
+    }, 1000);
+  }
+
+  // Still in app.js, modify the 'onChatMessage' network event listener
+  Network.onChatMessage((msg) => {
+
+    UI.appendChat(msg);
+    if (document.hidden) {
+      playNotificationSound();
+      updateTabNotification();
+    }
+  });
+
+  // Add a listener to clear the notification when the user returns to the tab
+  window.addEventListener("focus", () => {
+    if (notificationInterval) {
+      clearInterval(notificationInterval);
+      notificationInterval = null;
+      document.title = originalTitle;
+    }
+  });
   Network.onObjectUpdated((updatedObject) => {
     const objects = State.get("objects").map((o) =>
       o.id === updatedObject.id ? updatedObject : o,
@@ -105,7 +151,6 @@ function bindNetworkEvents() {
     if (UI.elems.spawnSizeSlider) UI.elems.spawnSizeSlider.value = mapSize;
     if (UI.elems.spawnSizeValue) UI.elems.spawnSizeValue.innerText = mapSize;
   });
-  Network.onChatMessage((msg) => UI.appendChat(msg));
   Network.onChatError((errorMsg) => showToast(errorMsg, true));
   Network.onClearChat(() => UI.clearChat());
 }

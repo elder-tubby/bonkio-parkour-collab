@@ -31,7 +31,7 @@ export const EVENTS = {
   CREATE_OBJECT: "createObject", // Replaces CREATE_LINE
   CREATE_OBJECTS_BATCH: "createObjectsBatch", // Replaces CREATE_POLYGONS_BATCH
   DELETE_OBJECT: "deleteObject", // Replaces DELETE_LINE, DELETE_POLYGON
-  REORDER_OBJECT: "reorderObject", // Replaces REORDER_LINE, REORDER_POLYGON
+  REORDER_OBJECTS: "reorderObject", // Replaces REORDER_LINE, REORDER_POLYGON
   UPDATE_OBJECT: "updateObject",
   SET_SPAWN_CIRCLE: "setSpawnCircle",
   SET_CAP_ZONE: "setCapZone",

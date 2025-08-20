@@ -183,6 +183,7 @@ class GameManager {
     });
   }
 
+  // In gameManager.js, modify the handleObjectsCreationBatch method:
   handleObjectsCreationBatch(playerId, batchData) {
     if (
       !this._canPlayerAct(playerId) ||
@@ -209,9 +210,10 @@ class GameManager {
           symbol: player.symbol,
           v: polyData.v,
           c: polyData.c,
-          a: 0,
-          scale: 1,
-          polyType: "none",
+          // --- FIX: Use passed-in values or provide defaults ---
+          a: polyData.a || 0,
+          scale: polyData.scale || 1,
+          polyType: polyData.polyType || "none",
           createdAt: Date.now(),
         });
       }
@@ -224,7 +226,7 @@ class GameManager {
       });
     }
   }
-
+  
   handleObjectDeletion(playerId, objectId) {
     if (!this._canModifyObject(playerId, objectId)) return;
     this.objects = this.objects.filter((o) => o.id !== objectId);
@@ -326,9 +328,12 @@ class GameManager {
     );
   }
 
+  // Replace your existing _updatePolygon with the snippet below
+
   _updatePolygon(currentPoly, payload) {
     let updatedPoly = { ...currentPoly };
 
+    // Nudges / center / angle / type / scale handling (preserve existing behavior)
     if (payload.nudge) {
       updatedPoly.c = {
         x: updatedPoly.c.x + (payload.nudge.x || 0) * 2,
@@ -349,26 +354,65 @@ class GameManager {
       updatedPoly.scale = currentScale + payload.scaleDelta;
     }
     if (typeof payload.scale === "number") updatedPoly.scale = payload.scale;
-
     updatedPoly.scale = Math.max(0.1, Math.min(10, updatedPoly.scale || 1));
 
+    // ---- NEW: accept and validate incoming vertex array payload.v ----
+    // Expect payload.v to be an array of {x,y} local vertices (same shape your clients send).
+    if (Array.isArray(payload.v)) {
+      // sanitize & validate each vertex
+      const cleanedVerts = payload.v
+        .map((p) => ({ x: Number(p?.x), y: Number(p?.y) }))
+        .filter((p) => this._validPoint(p));
+
+      // If too few verts -> treat as invalid and delete the polygon to avoid corrupt state
+      if (cleanedVerts.length < 3) {
+        // remove locally and notify participants
+        this.objects = this.objects.filter((o) => o.id !== updatedPoly.id);
+        this.participants.forEach((id) =>
+          this.io.to(id).emit(EVENTS.OBJECT_DELETED, { id: updatedPoly.id }),
+        );
+        return;
+      }
+
+      // Accept the cleaned vertices
+      updatedPoly.v = cleanedVerts;
+    }
+
+    // Persist updated polygon in server state and broadcast
     const objIndex = this.objects.findIndex((o) => o.id === updatedPoly.id);
     if (objIndex !== -1) this.objects[objIndex] = updatedPoly;
+
     this.participants.forEach((id) =>
       this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly),
     );
   }
-
-  handleObjectReorder(playerId, { id, toBack }) {
+  handleObjectsReorder(playerId, { ids, toBack }) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
       return;
-    const index = this.objects.findIndex((o) => o.id === id);
-    if (index === -1) return;
+    if (!Array.isArray(ids) || ids.length === 0) return;
 
-    const [obj] = this.objects.splice(index, 1);
-    if (toBack) this.objects.unshift(obj);
-    else this.objects.push(obj);
+    // Remove selected objects from current list
+    const moving = [];
+    this.objects = this.objects.filter((o) => {
+      if (ids.includes(o.id)) {
+        moving.push(o);
+        return false;
+      }
+      return true;
+    });
 
+    // Preserve relative order according to ids array
+    const orderedMoving = ids
+      .map((id) => moving.find((o) => o.id === id))
+      .filter(Boolean);
+
+    if (toBack) {
+      this.objects = [...orderedMoving, ...this.objects];
+    } else {
+      this.objects = [...this.objects, ...orderedMoving];
+    }
+
+    // Broadcast the new full order to all clients
     this.participants.forEach((pid) => {
       this.io.to(pid).emit(EVENTS.OBJECTS_REORDERED, this.objects);
     });

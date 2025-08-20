@@ -27,14 +27,49 @@ let isDraggingCapZone = false;
 let isDrawing = false; // Generic flag for line or marquee
 let mouseMovedSinceDown = false;
 let mouseDownTime = 0;
+let isDraggingVertex = false;
+let vertexDrag = null; // will be mirrored to State for canvas rendering
 
 const keysDown = new Set();
 let nudgeLoopId = null;
 
 // Track the drawing mode before shift was pressed
 let drawingModeBeforeShift = null;
+function rotatePoint(pt, angleDeg) {
+  const r = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  return { x: pt.x * cos - pt.y * sin, y: pt.x * sin + pt.y * cos };
+}
 
-// --- Canvas Event Handlers ---
+function rotatePointInverse(pt, angleDeg) {
+  // rotate by -angleDeg
+  return rotatePoint(pt, -angleDeg);
+}
+
+function getAbsoluteVertices(obj) {
+  // obj.v are local (relative to obj.c), apply rotation + scale + translate
+  const a = obj.a || 0;
+  const s = obj.scale || 1;
+  return (obj.v || []).map((lv) => {
+    const scaled = { x: lv.x * s, y: lv.y * s };
+    const rotated = rotatePoint(scaled, a);
+    return { x: obj.c.x + rotated.x, y: obj.c.y + rotated.y };
+  });
+}
+
+function localVerticesFromAbsolute(absVerts, center, angleDeg, scale) {
+  // For each absolute vertex: compute (Ai - center), rotate inverse by angle, divide by scale
+  return absVerts.map((A) => {
+    const rel = { x: A.x - center.x, y: A.y - center.y };
+    const invRot = rotatePointInverse(rel, angleDeg);
+    return { x: invRot.x / (scale || 1), y: invRot.y / (scale || 1) };
+  });
+}
+
+// ===== handlers.js =====
+// Replace the entire handleCanvasDown with this refactored, consistent version.
+
 function handleCanvasDown(e) {
   if (e.button !== 0 || e.target !== UI.elems.canvas) return;
 
@@ -42,10 +77,12 @@ function handleCanvasDown(e) {
   State.set("mouse", point);
   mouseMovedSinceDown = false;
   mouseDownTime = Date.now();
+
   const drawingMode = State.get("drawingMode");
 
+  // quick-hit: spawn / cap zone
   const spawn = State.get("spawnCircle");
-  if (spawn && distance(point, spawn) < spawn.diameter / 2 + 5) {
+  if (spawn && distance(point, spawn) < (spawn.diameter || 0) / 2 + 5) {
     isDraggingSpawn = true;
     return;
   }
@@ -61,23 +98,50 @@ function handleCanvasDown(e) {
     return;
   }
 
-  // Don't auto-clear selection for poly mode here; we need special behaviour:
-  if (!e.shiftKey && drawingMode !== "poly") {
-    State.clearSelectedObjects();
-  }
-
-  // If already drawing (adding vertices) then add the next point
-  if (State.get("drawingShape")) {
-    if (drawingMode === "poly") {
-      addPolygonPoint(point);
-    }
+  // if we're mid-adding points to a polygon, treat this click as adding a vertex
+  const drawingShape = State.get("drawingShape");
+  if (drawingShape) {
+    if (drawingMode === "poly") addPolygonPoint(point);
     return;
   }
 
-  const hitObjectId = getHitObjectId(point, State.get("objects"));
+  const objects = State.get("objects") || [];
+  const hitObjectId = getHitObjectId(point, objects);
 
+  // --- Clicked on an object: vertex-drag detection first (highest priority) ---
   if (hitObjectId && canSelectObject(hitObjectId)) {
+    const obj = objects.find((o) => o.id === hitObjectId);
+    if (obj && obj.type === "poly" && State.isSelected(hitObjectId)) {
+      const absVerts = getAbsoluteVertices(obj);
+      const HANDLE_RADIUS = 8;
+      const vertexIndex = absVerts.findIndex(
+        (v) => distance(v, point) < HANDLE_RADIUS,
+      );
+      if (vertexIndex !== -1) {
+        // start vertex drag (prevent this from turning into an object-drag)
+        isDraggingVertex = true;
+        isDraggingObject = false;
+        vertexDrag = {
+          objectId: hitObjectId,
+          vertexIndex,
+          originalObject: { ...obj, v: obj.v.map((p) => ({ ...p })) },
+          originalAbsVertices: absVerts.map((p) => ({ ...p })),
+          mouseStart: point,
+        };
+        State.set("vertexDrag", { ...vertexDrag });
+        State.set("draggingPreview", {
+          mouseStart: point,
+          originalObjects: [{ ...obj }],
+          objects: [{ ...obj }],
+        });
+        return;
+      }
+    }
+
+    // normal object selection / start object-drag
+    isDraggingVertex = false;
     isDraggingObject = true;
+
     if (e.shiftKey) {
       if (State.isSelected(hitObjectId)) {
         State.removeSelectedObjectId(hitObjectId);
@@ -88,9 +152,7 @@ function handleCanvasDown(e) {
       State.set("selectedObjectIds", [hitObjectId]);
     }
 
-    const selectedObjects = State.get("objects").filter((o) =>
-      State.isSelected(o.id),
-    );
+    const selectedObjects = objects.filter((o) => State.isSelected(o.id));
     State.set("draggingPreview", {
       mouseStart: point,
       originalObjects: selectedObjects.map((o) => ({ ...o })),
@@ -98,17 +160,19 @@ function handleCanvasDown(e) {
     return;
   }
 
-  // Click on empty canvas while in poly mode:
-  if (drawingMode === "poly") {
-    const selectedIds = State.get("selectedObjectIds") || [];
-    if (selectedIds.length > 0) {
-      // If an object is already selected, just deselect and DO NOT start drawing.
-      State.clearSelectedObjects();
+  // --- Clicked empty canvas: ALWAYS clear selection first (fixes the line-mode bug) ---
+  const selectedIds = State.get("selectedObjectIds") || [];
+  if (selectedIds.length > 0) {
+    State.clearSelectedObjects();
+    // preserve old behavior for poly-mode: if something was selected, a click simply deselects (don't start drawing)
+    if (drawingMode === "poly") {
       console.log("Cleared selection.");
       return;
     }
+  }
 
-    // Otherwise — start polygon drawing immediately on this single tap
+  // If poly mode and nothing selected -> start drawing polygon immediately
+  if (drawingMode === "poly") {
     State.set("drawingShape", { type: "poly", vertices: [point] });
     UI.setStatus(
       "Click to add points, close shape to finish, or 'X' to cancel.",
@@ -116,7 +180,7 @@ function handleCanvasDown(e) {
     return;
   }
 
-  // Action on empty canvas depends on the current mode
+  // Line/select modes: begin drawing / selection box
   if (drawingMode === "line" || drawingMode === "select") {
     isDrawing = true;
     State.set("startPt", point);
@@ -128,9 +192,10 @@ function handleCanvasDown(e) {
         height: 0,
       });
     }
-  } else if (drawingMode === "poly") {
-    // Defer starting polygon to handle brief clicks
+    return;
   }
+
+  // fall-through: do nothing
 }
 
 function addPolygonPoint(point) {
@@ -195,6 +260,63 @@ function handleCanvasMove(e) {
   ) {
     drawingShape.preview = point; // add a transient "preview" field
     State.set("drawingShape", drawingShape);
+  }
+
+  // ---- handlers.js (inside handleCanvasMove) ----
+  if (isDraggingVertex && vertexDrag) {
+    mouseMovedSinceDown = true;
+    const { objectId, vertexIndex, originalObject, originalAbsVertices } =
+      vertexDrag;
+
+    // clamp to canvas
+    const clampedPoint = (function clampToCanvas(p) {
+      const canvas = UI.elems.canvas;
+      return {
+        x: Math.max(0, Math.min(canvas.width, p.x)),
+        y: Math.max(0, Math.min(canvas.height, p.y)),
+      };
+    })(point);
+
+    // create new absolute vertices with dragged vertex moved
+    const absVerts = originalAbsVertices.map((v, i) =>
+      i === vertexIndex
+        ? { x: clampedPoint.x, y: clampedPoint.y }
+        : { x: v.x, y: v.y },
+    );
+
+    // compute new center and local vertices for preview
+    const center = calculatePolygonCenter(absVerts);
+    const relativeVerts = localVerticesFromAbsolute(
+      absVerts,
+      center,
+      originalObject.a || 0,
+      originalObject.scale || 1,
+    );
+
+    // build preview object
+    const previewObj = {
+      ...originalObject,
+      c: center,
+      v: relativeVerts,
+    };
+
+    // 1) Update draggingPreview for canvas rendering (keeps existing preview logic)
+    State.set("draggingPreview", {
+      mouseStart: vertexDrag.mouseStart,
+      originalObjects: [{ ...originalObject }],
+      objects: [{ ...previewObj }],
+    });
+
+    // 2) **CRITICAL** — immediately update local State.objects so the live vertex movement
+    // persists in-app and cannot be overridden by other drag logic.
+    const objs = State.get("objects") || [];
+    const newObjs = objs.map((o) => (o.id === objectId ? previewObj : o));
+    State.set("objects", newObjs);
+
+    // 3) Mirror the current computed absolute verts so handles draw at live positions
+    State.set("vertexDrag", { ...vertexDrag, currentAbsVerts: absVerts });
+
+    return;
   }
 
   function padLabel(label, width = 7) {
@@ -334,18 +456,105 @@ function handleCanvasMove(e) {
     }
   }
 }
+// ===== handlers.js =====
+// Replace handleCanvasUp with the version below (only the function — rest of file unchanged).
+// Note: vertex commit is done first so it cannot be clobbered by object-drag updates.
 
 function handleCanvasUp(e) {
   const drawingMode = State.get("drawingMode");
 
-  if (isDraggingSpawn) {
-    const spawn = State.get("spawnCircle");
-    Network.setSpawnCircle({ x: spawn.x, y: spawn.y });
+  // First: if we were vertex-dragging, commit that change before any other drag-handling.
+  if (isDraggingVertex && vertexDrag) {
+    try {
+      const { objectId, originalObject } = vertexDrag;
+      const preview = State.get("draggingPreview");
+      const previewObj =
+        preview?.objects?.find((o) => o.id === objectId) || null;
+
+      if (previewObj) {
+        // Reconstruct absolute vertices from previewObj (local->absolute)
+        const absVerts = getAbsoluteVertices(previewObj);
+
+        // If malformed (less than 3), delete original
+        if (!absVerts || absVerts.length < 3) {
+          Network.deleteObject(objectId);
+        } else {
+          // Use existing splitting utility (expects absolute coordinates in shape.v)
+          const shapeToSplit = { v: absVerts.map((p) => [p.x, p.y]) };
+          const convexPolygons = splitConcaveIntoConvex(shapeToSplit);
+
+          if (!convexPolygons || convexPolygons.length === 0) {
+            // fallback: delete original if split fails
+            Network.deleteObject(objectId);
+          } else if (convexPolygons.length === 1) {
+            // Single polygon -> update the original object with new local vertices and center
+            const absoluteVertices = convexPolygons[0].v.map((p) => ({
+              x: p[0],
+              y: p[1],
+            }));
+            const newCenter = calculatePolygonCenter(absoluteVertices);
+            const newRelative = localVerticesFromAbsolute(
+              absoluteVertices,
+              newCenter,
+              previewObj.a || 0,
+              previewObj.scale || 1,
+            );
+
+            // IMPORTANT: update local state first so UI doesn't revert or treat this as an object-move
+            const objs = State.get("objects") || [];
+            const updatedObjs = objs.map((o) =>
+              o.id === objectId ? { ...o, v: newRelative, c: newCenter } : o,
+            );
+            State.set("objects", updatedObjs);
+
+            // then broadcast the canonical change to the server
+            Network.updateObject({
+              id: objectId,
+              v: newRelative,
+              c: newCenter,
+            });
+          } else {
+            // Multiple convex polygons -> create new objects, remove original
+            const polygonsToSend = convexPolygons.map((convexPoly) => {
+              const absoluteVertices = convexPoly.v.map((p) => ({
+                x: p[0],
+                y: p[1],
+              }));
+              const center = calculatePolygonCenter(absoluteVertices);
+              const relativeVertices = absoluteVertices.map((p) => ({
+                x: p.x - center.x,
+                y: p.y - center.y,
+              }));
+              // --- FIX: Inherit properties from the original object ---
+              return {
+                v: relativeVertices,
+                c: center,
+                a: originalObject.a || 0,
+                scale: originalObject.scale || 1,
+                polyType: originalObject.polyType || "none",
+              };
+            });
+
+            // Create the new polygons first, then delete the old
+            Network.deleteObject(objectId);
+            Network.createObjectsBatch({ objects: polygonsToSend });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error committing vertex drag:", err);
+    } finally {
+      // Cleanup vertex drag state so no subsequent object-drag code runs for this event
+      isDraggingVertex = false;
+      vertexDrag = null;
+      State.set("vertexDrag", null);
+      State.set("draggingPreview", null);
+      // Also ensure we are not flagged as an object drag
+      isDraggingObject = false;
+    }
   }
-  if (isDraggingCapZone) {
-    const cz = State.get("capZone");
-    Network.setCapZone({ x: cz.x, y: cz.y });
-  }
+
+  // Handle normal object-drag commit (skip if we were vertex-dragging -- already handled above)
   if (isDraggingObject) {
     const preview = State.get("draggingPreview");
     if (preview && preview.objects && mouseMovedSinceDown) {
@@ -359,6 +568,16 @@ function handleCanvasUp(e) {
         Network.updateObject(payload);
       });
     }
+  }
+
+  // (rest unchanged) spawn/capzone handling, selection-box, line creation, cleanup
+  if (isDraggingSpawn) {
+    const spawn = State.get("spawnCircle");
+    Network.setSpawnCircle({ x: spawn.x, y: spawn.y });
+  }
+  if (isDraggingCapZone) {
+    const cz = State.get("capZone");
+    Network.setCapZone({ x: cz.x, y: cz.y });
   }
 
   if (isDrawing && drawingMode === "select" && mouseMovedSinceDown) {
@@ -386,7 +605,7 @@ function handleCanvasUp(e) {
     }
   }
 
-  // Cleanup
+  // Final cleanup
   isDraggingObject = false;
   isDraggingSpawn = false;
   isDraggingCapZone = false;
@@ -394,6 +613,7 @@ function handleCanvasUp(e) {
   State.set("startPt", null);
   State.set("selectionBox", null);
   State.set("draggingPreview", null);
+  State.set("vertexDrag", null);
   State.set(
     "drawingShape",
     State.get("drawingShape")?.type === "poly"
@@ -544,9 +764,7 @@ function handleKeyDown(e) {
       }
       return;
     case "c":
-      if (e.metaKey || e.ctrlKey) {
-        copyLineInfo();
-      }
+      copyLineInfo();
       return;
     case "v":
       if (e.metaKey || e.ctrlKey) {
@@ -579,12 +797,12 @@ function handleKeyDown(e) {
 
   if (key === "[") {
     e.preventDefault();
-    selectedIds.forEach((id) => Network.reorderObject({ id, toBack: true }));
+    Network.reorderObjects({ ids: selectedIds, toBack });
     return;
   }
   if (key === "]") {
     e.preventDefault();
-    selectedIds.forEach((id) => Network.reorderObject({ id, toBack: false }));
+    Network.reorderObjects({ ids: selectedIds, toBack });
     return;
   }
 
@@ -791,7 +1009,8 @@ export function bindUIEvents() {
   const createReorderHandler = (toBack) => () => {
     const selectedIds = State.get("selectedObjectIds");
     if (selectedIds.length > 0) {
-      selectedIds.forEach((id) => Network.reorderObject({ id, toBack }));
+      Network.reorderObjects({ ids: selectedIds, toBack });
+
     }
   };
 
@@ -837,10 +1056,7 @@ export function bindUIEvents() {
     State.set("drawingShape", null);
   });
 
-  safeAddEvent(e.chatAudioBtn, "click", () => {
-    const isSoundOn = !State.get("isChatSoundOn");
-    State.set("isChatSoundOn", isSoundOn);
-  });
+
 
   safeAddEvent(e.autoGenerateBtn, "click", () => {
     // Safety Check: Do not run if objects already exist.
@@ -857,6 +1073,13 @@ export function bindUIEvents() {
     } else {
       showToast("Map generation failed. Please try again.", true);
     }
+  });
+
+  // In handlers.js, at the end of the bindUIEvents function, add this:
+  safeAddEvent(e.chatAudioBtn, "click", () => {
+    const isSoundOn = !State.get("isChatSoundOn");
+    State.set("isChatSoundOn", isSoundOn);
+    e.chatAudioBtn.textContent = isSoundOn ? "🔊" : "🔇";
   });
 }
 
