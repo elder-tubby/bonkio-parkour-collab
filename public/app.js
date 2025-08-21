@@ -5,11 +5,13 @@ import UI from "./ui.js";
 import State from "./state.js";
 import Canvas from "./canvas.js";
 import * as Network from "./network.js";
+import AdminUI from "./admin.js"; // Add this
 import { bindUIEvents } from "./handlers.js";
 import { showToast, getSpawnDiameter } from "./utils-client.js";
 
 function main() {
   UI.init();
+  AdminUI.init(); // Add this
   bindUIEvents();
   bindNetworkEvents();
   watchStateChanges();
@@ -31,6 +33,9 @@ notificationSound.volume = 0.5;
  */
 function playJoinSoundIfNew(prevPlayers = [], newPlayers = []) {
   try {
+    if (!State.get("isNotificationSoundOn")) {
+      return;
+    }
     const prevIds = new Set((prevPlayers || []).map((p) => p.id));
     const myId = State.get("socketId");
     const newJoin = (newPlayers || []).some(
@@ -61,7 +66,6 @@ function bindNetworkEvents() {
     const me = (players || []).find((p) => p.id === State.get("socketId"));
     if (UI.elems.readyCheckbox) UI.elems.readyCheckbox.disabled = !me;
     State.set("gameActive", !!gameActive);
-    
   });
 
   Network.onGameInProgress(() =>
@@ -75,7 +79,6 @@ function bindNetworkEvents() {
 
     UI.updatePlayers(players || []);
     UI.setVote(votes ?? 0, totalParticipants ?? 0);
-
   });
   Network.onEndGame(({ reason }) => {
     State.set("gameActive", false);
@@ -97,13 +100,23 @@ function bindNetworkEvents() {
     }
   });
 
+  
+  
   Network.onObjectsCreatedBatch((newObjects) => {
     if (Array.isArray(newObjects) && newObjects.length > 0) {
       State.set("objects", [...State.get("objects"), ...newObjects]);
-      State.set(
-        "selectedObjectIds",
-        newObjects.map((o) => o.id),
-      );
+
+      const myId = State.get("socketId");
+      const myNewObjectIds = newObjects
+        .filter((o) => o.playerId === myId)
+        .map((o) => o.id);
+
+      if (myNewObjectIds.length > 0) {
+        State.set(
+          "selectedObjectIds",
+          myNewObjectIds,
+        );
+      }
     }
   });
 
@@ -138,7 +151,7 @@ function bindNetworkEvents() {
     startTitleFlashing();
 
     // 3. Check if sound is enabled. With simpler logic, this check now works reliably.
-    if (!State.get("isChatSoundOn")) {
+    if (!State.get("isNotificationSoundOn")) {
       return;
     }
 
@@ -214,7 +227,6 @@ function bindNetworkEvents() {
     State.set("objects", reorderedObjects || []);
   });
 
-
   Network.onSpawnCircleUpdate((spawnCircle) =>
     State.set("spawnCircle", spawnCircle),
   );
@@ -226,6 +238,46 @@ function bindNetworkEvents() {
   });
   Network.onChatError((errorMsg) => showToast(errorMsg, true));
   Network.onClearChat(() => UI.clearChat());
+
+  Network.onKicked(({ reason }) => {
+    alert(`${reason}`);
+    window.location.reload();
+  });
+
+  Network.onLobbyJoinFail(({ message }) => {
+    showToast(message, true);
+  });
+
+  Network.onAdminStateUpdate((state) => {
+    UI.toggleLobbyPasswordInput(state.hasLobbyPassword);
+    AdminUI.handleStateUpdate(state);
+  });
+
+  Network.onAdminLoginSuccess((state) => {
+    showToast("Admin login successful.");
+    AdminUI.handleLoginSuccess(state);
+  });
+
+  Network.onAdminLoginFail(({ message }) => {
+    showToast(message, true);
+  });
+
+  // MODIFY onEndGame to include admin reason
+  Network.onEndGame(({ reason }) => {
+    State.set("gameActive", false);
+    if (UI.elems && UI.elems.readyCheckbox) {
+      UI.elems.readyCheckbox.checked = false;
+    }
+    UI.hide("canvasWrap");
+    UI.show("home");
+    let endReasonText = "All players left.";
+    if (reason === "voted") endReasonText = "All players voted to end.";
+    if (reason === "admin_forced")
+      endReasonText = "Drawing was ended by an admin.";
+    UI.setEndReason(endReasonText);
+    UI.show("gameEndPopup");
+    UI.showLobbyMessage("Drawing will start when 2 players are ready.");
+  });
 }
 
 function watchStateChanges() {

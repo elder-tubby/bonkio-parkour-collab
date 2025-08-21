@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const LobbyManager = require("./lobbyManager");
 const { GameManager } = require("./gameManager");
 const { EVENTS } = require("./config");
+const AdminManager = require("./adminManager"); // Add this
 
 const app = express();
 const server = http.createServer(app);
@@ -15,10 +16,14 @@ app.use(express.static("public"));
 const lobby = new LobbyManager(io, () => game.active);
 const game = new GameManager(io, lobby);
 const chatLimiter = new Map();
+const admin = new AdminManager(io, lobby, game); // Add this
 
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
   socket.emit(EVENTS.CONNECT_WITH_ID, socket.id);
+
+  // Send initial admin state for UI setup (e.g., show/hide lobby password field)
+  socket.emit(EVENTS.ADMIN_STATE_UPDATE, admin.getAdminState());
 
   socket.emit(EVENTS.LOBBY_UPDATE, {
     players: lobby.getLobbyPayload().players,
@@ -28,7 +33,15 @@ io.on("connection", (socket) => {
     socket.emit(EVENTS.GAME_SNAPSHOT, game.getSnapshotFor(socket.id));
   }
 
-  socket.on(EVENTS.JOIN_LOBBY, (name) => {
+  socket.on(EVENTS.JOIN_LOBBY, (data) => {
+    const { name, password } = data;
+    const passwordResult = admin.checkLobbyPassword(password, socket.id);
+    if (!passwordResult.success) {
+      return socket.emit(EVENTS.LOBBY_JOIN_FAIL, {
+        message: passwordResult.message,
+      });
+    }
+
     const result = lobby.addPlayer(socket.id, name);
     if (result.error === "lobbyFull") {
       return socket.emit(EVENTS.LOBBY_FULL);
@@ -121,6 +134,33 @@ io.on("connection", (socket) => {
     chatLimiter.delete(socket.id);
     game.handleDisconnect(socket.id);
     lobby.removePlayer(socket.id);
+  });
+
+  socket.on(EVENTS.ADMIN_LOGIN, (password) => {
+    const result = admin.handleLogin(socket, password);
+    if (result.success) {
+      socket.emit(EVENTS.ADMIN_LOGIN_SUCCESS, {
+        ...admin.getAdminState(),
+        players: lobby.getLobbyPayload().players,
+      });
+    } else {
+      socket.emit(EVENTS.ADMIN_LOGIN_FAIL, { message: result.message });
+    }
+  });
+
+  socket.on(EVENTS.ADMIN_KICK_PLAYER, (playerId) => {
+    if (!socket.isAdmin) return;
+    admin.kickPlayer(playerId);
+  });
+
+  socket.on(EVENTS.ADMIN_SET_PASSWORD, (newPassword) => {
+    if (!socket.isAdmin) return;
+    admin.setLobbyPassword(newPassword);
+  });
+
+  socket.on(EVENTS.ADMIN_END_GAME, () => {
+    if (!socket.isAdmin) return;
+    admin.endGame();
   });
 });
 

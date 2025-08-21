@@ -44,7 +44,7 @@ class State {
 
       // Settings
       hideUsernames: false,
-      isChatSoundOn: true,
+      isNotificationSoundOn: true,
       mapSize: 9,
       generatedPath: null,
     };

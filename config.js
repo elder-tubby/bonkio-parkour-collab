@@ -39,6 +39,16 @@ module.exports = {
     SET_CAP_ZONE: "setCapZone",
     SET_MAP_SIZE: "setMapSize",
     PASTE_LINES: "pasteLines",
+
+    ADMIN_LOGIN: "admin:login",
+    ADMIN_LOGIN_SUCCESS: "admin:login_success",
+    ADMIN_LOGIN_FAIL: "admin:login_fail",
+    ADMIN_STATE_UPDATE: "admin:state_update",
+    ADMIN_KICK_PLAYER: "admin:kick_player",
+    ADMIN_SET_PASSWORD: "admin:set_password",
+    ADMIN_END_GAME: "admin:end_game",
+    KICKED: "kicked",
+    LOBBY_JOIN_FAIL: "lobby:join_fail",
   },
   PORT: 3000,
   CAP_ZONE_OPTIONS: [

@@ -314,19 +314,66 @@ class UI {
     if (this.elems.chatMessages) this.elems.chatMessages.innerHTML = "";
   }
 
+  // File: ui.js
+
   appendChat({ name, message, isError = false }) {
     if (!this.elems.chatMessages) return;
     const p = document.createElement("p");
     if (isError) p.classList.add("chat-error");
-    p.innerHTML = `<span class="chat-sender">${name}:</span> ${message}`;
+
+    // Safely add the sender's name
+    const senderSpan = document.createElement("span");
+    senderSpan.className = "chat-sender";
+    senderSpan.textContent = `${name}: `;
+    p.appendChild(senderSpan);
+
+    // Regex to find URLs with a capture group
+    const urlRegex = /(\b(?:https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+    const parts = message.split(urlRegex);
+
+    // Process parts: odd indices are URLs, even are plain text
+    parts.forEach((part, index) => {
+      if (!part) return; // Skip empty parts
+      if (index % 2 === 1) { // This is a URL
+        const link = document.createElement("a");
+        link.href = part;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = part;
+        p.appendChild(link);
+      } else { // This is plain text
+        p.appendChild(document.createTextNode(part));
+      }
+    });
+
     this.elems.chatMessages.appendChild(p);
     this.elems.chatMessages.scrollTop = this.elems.chatMessages.scrollHeight;
   }
-
+  
   setEndReason(text) {
     const msg = this.elems.gameEndPopup?.querySelector("p");
     if (msg) msg.innerText = text;
   }
+
+  toggleLobbyPasswordInput(show) {
+    console.log("toggleLobbyPasswordInput called with:", show)
+    const existingSection = document.getElementById("lobbyPasswordSection");
+
+    if (show && !existingSection) {
+      const section = document.createElement("div");
+      section.className = "admin-login-form"; // reuse same style
+      section.id = "lobbyPasswordSection";
+
+      section.innerHTML = `
+        <input type="password" id="lobbyPasswordInput" placeholder="Lobby Password" autocomplete="off" />
+      `;
+
+      this.elems.joinBtn.before(section);
+    } else if (!show && existingSection) {
+      existingSection.remove();
+    }
+  }
+
 
   // --- PRIVATE HELPER METHODS ---
 

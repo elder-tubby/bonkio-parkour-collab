@@ -949,13 +949,22 @@ function createSliderHandlerFactory(elems) {
 
 export function bindUIEvents() {
   const e = UI.elems;
+
   safeAddEvent(e.joinBtn, "click", () => {
     const name = e.usernameInput.value;
+    const passwordInput = document.getElementById("lobbyPasswordInput"); // Find the password input
+    const password = passwordInput ? passwordInput.value : null;
+
     if (name) {
-      Network.joinLobby(name);
+      // Pass both name and password
+      Network.joinLobby(name, password);
       State.set("username", name);
-      if (e.readyCheckbox) e.readyCheckbox.checked = false;     }
+      if (e.readyCheckbox) e.readyCheckbox.checked = false;
+    } else {
+      showToast("Please enter a name.", true);
+    }
   });
+
   safeAddEvent(e.usernameInput, "keydown", (ev) => {
     if (ev.key === "Enter") e.joinBtn.click();
   });
@@ -1082,8 +1091,8 @@ export function bindUIEvents() {
   });
 
   safeAddEvent(e.chatAudioBtn, "click", () => {
-    const isSoundOn = !State.get("isChatSoundOn");
-    State.set("isChatSoundOn", isSoundOn);
+    const isSoundOn = !State.get("isNotificationSoundOn");
+    State.set("isNotificationSoundOn", isSoundOn);
     e.chatAudioBtn.textContent = isSoundOn ? "🔊" : "🔇";
   });
 }

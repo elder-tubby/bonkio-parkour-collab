@@ -145,7 +145,7 @@ export function showToast(message, isWarning = false) {
 
   Object.assign(toast.style, {
     position: "fixed",
-    bottom: "1rem",
+    top: "1rem",
     left: "50%",
     transform: "translateX(-50%)",
     background: backgroundColor,

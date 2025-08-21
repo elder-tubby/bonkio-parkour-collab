@@ -22,8 +22,11 @@ class LobbyManager {
   }
 
   addPlayer(socketId, name) {
+    if (typeof name !== "string") {
+      console.log("Invalid name type:", name);
+      throw new TypeError("Expected a string for name");
+    }
     const lowerName = name.trim().toLowerCase();
-
     if (Object.keys(this.players).length >= MAX_LOBBY_PLAYERS) {
       return { error: "lobbyFull" };
     }
@@ -99,16 +102,18 @@ class LobbyManager {
       })),
     };
   }
+  // server/lobbyManager.js (snippet)
 
+  // In the broadcastLobby method, add an admin state broadcast
   broadcastLobby() {
-    // Also include game status in the lobby update.
     const payload = this.getLobbyPayload();
-    // This is a bit of a hack; ideally game state isn't managed here.
-    // We'll add a property to the payload.
-    // A better solution would be for the gameManager to broadcast its own status.
-    // For now, this will work for the client.
     this.io.emit(EVENTS.LOBBY_UPDATE, {
       ...payload,
+      gameActive: !!this.getGameActive(),
+    });
+    // This ensures admin panels with player lists stay in sync
+    this.io.emit(EVENTS.ADMIN_STATE_UPDATE, {
+      players: payload.players,
       gameActive: !!this.getGameActive(),
     });
   }

@@ -4,9 +4,6 @@ const socket = window.io();
 
 // ---- EMITTERS (Client -> Server) ----
 
-export function joinLobby(name) {
-  socket.emit(EVENTS.JOIN_LOBBY, name);
-}
 
 export function setReady(isReady) {
   socket.emit(EVENTS.SET_READY, isReady);
@@ -56,6 +53,28 @@ export function setCapZone(data) {
 
 export function setMapSize(size) {
   socket.emit(EVENTS.SET_MAP_SIZE, size);
+}
+
+// Admin Emitters
+export function adminLogin(password) {
+  socket.emit(EVENTS.ADMIN_LOGIN, password);
+}
+
+export function adminKickPlayer(playerId) {
+  socket.emit(EVENTS.ADMIN_KICK_PLAYER, playerId);
+}
+
+export function adminSetPassword(newPassword) {
+  socket.emit(EVENTS.ADMIN_SET_PASSWORD, newPassword);
+}
+
+export function adminEndGame() {
+  socket.emit(EVENTS.ADMIN_END_GAME);
+}
+
+// Modified Emitters
+export function joinLobby(name, password) {
+  socket.emit(EVENTS.JOIN_LOBBY, { name, password });
 }
 
 // ---- LISTENERS (Server -> Client) ----
@@ -117,7 +136,6 @@ export function onObjectsReordered(cb) {
   socket.on(EVENTS.OBJECTS_REORDERED, cb);
 }
 
-
 // Map Objects
 export function onSpawnCircleUpdate(cb) {
   socket.on(EVENTS.SPAWN_CIRCLE_UPDATED, cb);
@@ -142,6 +160,27 @@ export function onChatError(cb) {
 
 export function onClearChat(cb) {
   socket.on(EVENTS.CLEAR_CHAT, cb);
+}
+
+// Admin Listeners
+export function onKicked(cb) {
+  socket.on(EVENTS.KICKED, cb);
+}
+
+export function onLobbyJoinFail(cb) {
+  socket.on(EVENTS.LOBBY_JOIN_FAIL, cb);
+}
+
+export function onAdminStateUpdate(cb) {
+  socket.on(EVENTS.ADMIN_STATE_UPDATE, cb);
+}
+
+export function onAdminLoginSuccess(cb) {
+  socket.on(EVENTS.ADMIN_LOGIN_SUCCESS, cb);
+}
+
+export function onAdminLoginFail(cb) {
+  socket.on(EVENTS.ADMIN_LOGIN_FAIL, cb);
 }
 
 export { socket };
