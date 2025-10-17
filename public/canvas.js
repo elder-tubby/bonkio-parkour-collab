@@ -402,10 +402,12 @@ class Canvas {
     const capZone = State.get("capZone");
     if (capZone && capZone.x !== null) {
       const { x, y, width, height } = capZone;
+      ctx.font = "9px Lexend";
+      ctx.lineWidth = 2;
       ctx.strokeStyle = "yellow";
       ctx.strokeRect(x, y, width, height);
       ctx.fillStyle = "yellow";
-      ctx.fillText("CZ", x + width / 2, y + height / 2 + 3);
+      ctx.fillText("CZ", x + width / 3, y + height / 2 + 3);
     }
   }
 }
