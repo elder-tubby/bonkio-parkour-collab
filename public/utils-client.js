@@ -39,84 +39,6 @@ function isPointInPolygon(point, vertices) {
   return isInside;
 }
 
-/**
- * Determines which object (line or polygon) was hit by a mouse click.
- * Iterates objects in reverse to select the top-most one first.
- * @param {{x, y}} point The coordinates of the mouse click.
- * @param {Array<Object>} objects The array of all line and polygon objects.
- * @returns {string|null} The ID of the hit object, or null if none was hit.
- */
-// export function getHitObjectId(point, objects) {
-//   // Iterate backwards to check top-most objects first
-//   for (let i = objects.length - 1; i >= 0; i--) {
-//     const obj = objects[i];
-//     const lobby = State.get("players") || [];
-//     // --- FIX --- Use 'socketId' for the current player's ID for consistency
-//     const currentPlayerId = State.get("socketId");
-
-//     const presentIds = new Set(lobby.map((p) => p.id));
-
-//     const ownerId = obj.playerId;
-//     const ownerPresent = presentIds.has(ownerId);
-//     if (obj.type === "poly") {
-//       const { c, v, a } = obj;
-
-//       // Perform inverse transformation on the click point
-//       const angleRad = -a * (Math.PI / 180); // Negative angle for inverse rotation
-//       const cos = Math.cos(angleRad);
-//       const sin = Math.sin(angleRad);
-
-//       // 1. Translate point to be relative to polygon's center
-//       const translatedX = point.x - c.x;
-//       const translatedY = point.y - c.y;
-
-//       // 2. Rotate the translated point
-//       const rotatedX = translatedX * cos - translatedY * sin;
-//       const rotatedY = translatedX * sin + translatedY * cos;
-
-//       // 3. Check if the transformed point is inside the polygon's local vertices
-//       if (isPointInPolygon({ x: rotatedX, y: rotatedY }, v)) {
-//         if (ownerId === currentPlayerId || !ownerPresent) {
-//           return obj.id;
-//         }
-//       }
-//     } else if (obj.type === "line") {
-//       const start = obj.start;
-//       const end = computeEnd(obj);
-
-//       const dx = end.x - start.x;
-//       const dy = end.y - start.y;
-//       const length = Math.hypot(dx, dy);
-
-//       // Rotate point into line's local coordinate space
-//       const angle = Math.atan2(dy, dx);
-//       const cos = Math.cos(-angle);
-//       const sin = Math.sin(-angle);
-
-//       const localX = (point.x - start.x) * cos - (point.y - start.y) * sin;
-//       const localY = (point.x - start.x) * sin + (point.y - start.y) * cos;
-
-//       const lineHeight = typeof obj.height === "number" ? obj.height : 4;
-
-//       // Check if inside the rectangle bounds
-//       const halfH = lineHeight / 2;
-//       if (
-//         localX >= 0 &&
-//         localX <= length &&
-//         localY >= -halfH &&
-//         localY <= halfH
-//       ) {
-//         // Allow selection if the user is the owner OR if the owner is not in the game
-//         if (ownerId === currentPlayerId || !ownerPresent) {
-//           return obj.id;
-//         }
-//       }
-//     }
-//   }
-
-//   return null;
-// }
-
 export function updateLineTypeUI(type) {
   const select = document.getElementById("lineTypeSelect");
   if (!select) return;
@@ -480,12 +402,26 @@ export function isObjectInSelectionBox(obj, box) {
 
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
+  // Helper for circle bounding box
+  function circleAABB(circle) {
+    const r = circle.radius || 0;
+    return {
+      x: circle.c.x - r,
+      y: circle.c.y - r,
+      width: r * 2,
+      height: r * 2,
+    };
+  }
 
   if (obj.type === "poly") {
     const aabb = polyAABB(obj);
     return rectsIntersect(aabb, box);
   } else if (obj.type === "line") {
     const aabb = lineAABB(obj);
+    return rectsIntersect(aabb, box);
+  } else if (obj.type === "circle") {
+    // Use the new bounding box check for circles
+    const aabb = circleAABB(obj);
     return rectsIntersect(aabb, box);
   }
 
@@ -535,6 +471,10 @@ export function getHitObjectId(point, objects) {
       if (dist < thickness) {
         return obj.id;
       }
+    } else if (obj.type === "circle") {
+      if (distance(point, obj.c) < obj.radius) {
+        return obj.id;
+      }
     }
   }
   return null;
@@ -550,4 +490,15 @@ function distanceToLineSegment(p, v, w) {
     p.x - (v.x + t * (w.x - v.x)),
     p.y - (v.y + t * (w.y - v.y)),
   );
+}
+
+// ----------------------- GEOMETRY FUNCTIONS --------------------------------
+export function polygonArea(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i],
+      b = pts[(i + 1) % pts.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
 }

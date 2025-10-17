@@ -19,7 +19,9 @@ function computeAbsoluteVerticesForCanvas(obj) {
 class Canvas {
   static draw() {
     const { canvas, ctx } = UI.elems;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const colors = State.get("colors"); // Get current colors
+    ctx.fillStyle = colors.background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.lineWidth = 4.452;
     ctx.strokeStyle = "white";
@@ -46,9 +48,9 @@ class Canvas {
         ctx.scale(scale || 1, scale || 1);
         console.log("Scale value in canvas:", scale);
 
-        let baseColor = "rgb(255, 255, 255)";
-        if (polyType === "death") baseColor = "rgb(255, 0, 0)";
-        else if (polyType === "bouncy") baseColor = "rgb(167, 196, 190)";
+        let baseColor = colors.none;
+        if (polyType === "death") baseColor = colors.death;
+        else if (polyType === "bouncy") baseColor = colors.bouncy;
         ctx.fillStyle = baseColor;
 
         ctx.beginPath();
@@ -57,6 +59,35 @@ class Canvas {
           ctx.lineTo(v[i].x, v[i].y);
         }
         ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = isSelected ? "yellow" : "white";
+        ctx.lineWidth = isSelected ? 3 : 1;
+        ctx.stroke();
+        ctx.restore();
+
+        if (symbol && !State.get("hideUsernames")) {
+          ctx.save();
+          const label = `${index + 1} ${symbol}`;
+          ctx.fillStyle = isSelected ? "yellow" : "#ccc";
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 3;
+          ctx.strokeText(label, c.x, c.y);
+          ctx.fillText(label, c.x, c.y);
+          ctx.restore();
+        }
+      } else if (obj.type === "circle") {
+        const { c, radius, circleType, symbol } = obj;
+        const isSelected = State.isSelected(obj.id);
+
+        ctx.save();
+        let baseColor = colors.none;
+        if (circleType === "death") baseColor = colors.death;
+        else if (circleType === "bouncy") baseColor = colors.bouncy;
+        ctx.fillStyle = baseColor;
+
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, radius, 0, 2 * Math.PI);
         ctx.fill();
 
         ctx.strokeStyle = isSelected ? "yellow" : "white";
@@ -91,9 +122,10 @@ class Canvas {
         };
 
         const drawEnd = computeEnd({ start, end, width, angle });
-        let baseColor = "white";
-        if (lineType === "death") baseColor = "red";
-        else if (lineType === "bouncy") baseColor = `rgb(167, 196, 190)`;
+
+        let baseColor = colors.none;
+        if (lineType === "death") baseColor = colors.death;
+        else if (lineType === "bouncy") baseColor = colors.bouncy;
 
         const visualThickness = Math.max(1, Math.round(height ?? 4));
 
@@ -192,6 +224,14 @@ class Canvas {
           ctx.moveTo(start.x, start.y);
           ctx.lineTo(end.x, end.y);
           ctx.stroke();
+        } else if (p_obj.type === "circle") {
+          const { c, radius } = p_obj;
+          ctx.lineWidth = 3;
+          ctx.fillStyle = "rgba(255, 255, 0, 0.5)";
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, radius, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
         } else if (p_obj.type === "poly") {
           const { v, c, a, scale } = p_obj;
           ctx.translate(c.x, c.y);
@@ -251,6 +291,21 @@ class Canvas {
         ctx.beginPath();
         ctx.moveTo(drawingShape.start.x, drawingShape.start.y);
         ctx.lineTo(drawingShape.end.x, drawingShape.end.y);
+        ctx.stroke();
+        ctx.restore();
+      } else if (drawingShape.type === "circle") {
+        ctx.save();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(
+          drawingShape.c.x,
+          drawingShape.c.y,
+          drawingShape.radius,
+          0,
+          2 * Math.PI,
+        );
         ctx.stroke();
         ctx.restore();
       } else if (
@@ -315,15 +370,33 @@ class Canvas {
     const spawnCircle = State.get("spawnCircle");
     if (spawnCircle) {
       const { x, y, diameter } = spawnCircle;
+      ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, diameter / 2, 0, 2 * Math.PI);
-      ctx.strokeStyle = "deepskyblue";
+
+      // Draw a thick black outline first for contrast
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Then draw a thinner white line on top
+      ctx.strokeStyle = "white";
       ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.fillStyle = "deepskyblue";
+
+      // For the text, draw a black outline and a white fill
       ctx.font = "9px Lexend";
       ctx.textAlign = "center";
-      ctx.fillText("spawn", x, y + diameter / 2 + 12);
+      const textY = y + diameter / 2 + 12;
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round"; // Makes text outline look better
+      ctx.strokeText("spawn", x, textY);
+      ctx.fillStyle = "white";
+      ctx.fillText("spawn", x, textY);
+
+      ctx.restore();
     }
 
     const capZone = State.get("capZone");

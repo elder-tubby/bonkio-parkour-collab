@@ -7,6 +7,7 @@ export function copyLineInfo() {
   const cz = State.get("capZone");
   const spawn = State.get("spawnCircle");
   const stateObjects = State.get("objects") || [];
+  const colors = State.get("colors"); // Get current colors
 
   if (!cz) throw new Error("No capZone in state!");
 
@@ -24,7 +25,7 @@ export function copyLineInfo() {
   const bgLine = {
     id: 0,
     type: "line",
-    color: 921102,
+    color: rgbToDecimal(colors.background),
     x: 935,
     y: 350,
     width: 1000,
@@ -64,21 +65,23 @@ export function copyLineInfo() {
         };
       });
 
-      let color = 16777215;
       let isBouncy = false;
       let isDeath = false;
+      let colorDecimal; // Use a specific variable
       if (polyType === "bouncy") {
-        color = 10994878;
+        colorDecimal = rgbToDecimal(colors.bouncy);
         isBouncy = true;
       } else if (polyType === "death") {
-        color = 12713984;
+        colorDecimal = rgbToDecimal(colors.death);
         isDeath = true;
+      } else {
+        colorDecimal = rgbToDecimal(colors.none);
       }
 
       exportedObjects.push({
         id: nextObjId++,
         type: "poly",
-        color: color,
+        color: colorDecimal,
         isBgLine: false,
         noGrapple: true,
         x: centerExternal.x,
@@ -90,6 +93,41 @@ export function copyLineInfo() {
         isDeath: isDeath,
       });
 
+      continue;
+    }
+
+    if (obj.type === "circle") {
+      const c = obj.c || { x: 0, y: 0 };
+      const radius = typeof obj.radius === "number" ? obj.radius : 50;
+      const circleType = obj.circleType || "normal";
+
+      const centerExternal = gameToExternal(c.x, c.y);
+      const scaleAvg = (scaleX + scaleY) / 2;
+      const radiusExternal = radius * scaleAvg;
+
+      let isBouncy = false;
+      let isDeath = false;
+      let colorDecimal;
+      if (circleType === "bouncy") {
+        colorDecimal = rgbToDecimal(colors.bouncy);
+        isBouncy = true;
+      } else if (circleType === "death") {
+        colorDecimal = rgbToDecimal(colors.death);
+        isDeath = true;
+      } else {
+        colorDecimal = rgbToDecimal(colors.none);
+      }
+
+      exportedObjects.push({
+        id: nextObjId++,
+        type: "circle",
+        color: colorDecimal,
+        x: centerExternal.x,
+        y: centerExternal.y,
+        radius: radiusExternal,
+        isBouncy: isBouncy,
+        isDeath: isDeath,
+      });
       continue;
     }
 
@@ -216,27 +254,27 @@ export function copyLineInfo() {
       let isBouncy = false;
       let isDeath = false;
       let bounciness;
-      let color;
+      let colorDecimal;
       switch (obj.lineType) {
         case "bouncy":
           isBouncy = true;
           bounciness = null;
-          color = 10994878;
+          colorDecimal = rgbToDecimal(colors.bouncy);
           break;
         case "death":
           isDeath = true;
           bounciness = -1;
-          color = 12713984;
+          colorDecimal = rgbToDecimal(colors.death);
           break;
         default:
           bounciness = -1;
-          color = typeof obj.color === "number" ? obj.color : 16777215;
+          colorDecimal = rgbToDecimal(colors.none);
       }
 
       exportedObjects.push({
         id: nextObjId++,
         type: "line",
-        color: color,
+        color: colorDecimal,
         isBgLine: false,
         noGrapple: true,
         x: externalCenter.x,
@@ -281,6 +319,7 @@ export function copyLineInfo() {
     spawn: { spawnX: spawnExternal.x - 935, spawnY: spawnExternal.y - 350 },
     mapSize: mapSize,
     objects: exportedObjects,
+    colors: colors,
   };
 
   navigator.clipboard
@@ -352,6 +391,15 @@ export async function pasteLines() {
     return;
   }
 
+  let importedColors = null;
+  if (data.colors && typeof data.colors === "object") {
+    // Basic validation
+    const { background, none, bouncy, death } = data.colors;
+    if (background && none && bouncy && death) {
+      importedColors = data.colors;
+    }
+  }
+
   const GW = UI.elems.canvas.width;
   const GH = UI.elems.canvas.height;
   if (!(GW > 0 && GH > 0)) {
@@ -392,6 +440,23 @@ export async function pasteLines() {
         a: obj.angle || 0,
         scale: obj.scale || 1,
         polyType,
+      });
+    } else if (obj.type === "circle") {
+      const centerGame = externalToGame(obj.x, obj.y);
+      const scaleX = GW / 730;
+      const scaleY = GH / 500;
+      const scaleAvg = (scaleX + scaleY) / 2;
+      const radiusGame = obj.radius / scaleAvg;
+
+      let circleType = "none";
+      if (obj.isBouncy) circleType = "bouncy";
+      if (obj.isDeath) circleType = "death";
+
+      importedObjects.push({
+        type: "circle",
+        c: centerGame,
+        radius: radiusGame,
+        circleType,
       });
     } else if (obj.type === "line") {
       const aExtRad = (obj.angle * Math.PI) / 180;
@@ -459,6 +524,7 @@ export async function pasteLines() {
     spawn: spawnGame,
     capZone: capZoneGame,
     mapSize,
+    colors: importedColors,
   };
 
   Network.pasteLines(payload);
@@ -499,4 +565,16 @@ function externalToGame(extX, extY) {
   return { x: gameX, y: gameY };
 }
 
-  
+function rgbToDecimal(rgbString) {
+  if (!rgbString) return 16777215; // Default to white
+  const [r, g, b] = rgbString.match(/\d+/g).map(Number);
+  return (r << 16) | (g << 8) | b;
+}
+
+function decimalToRgb(decimal) {
+  if (typeof decimal !== "number") return "rgb(255, 255, 255)";
+  const r = (decimal >> 16) & 0xff;
+  const g = (decimal >> 8) & 0xff;
+  const b = decimal & 0xff;
+  return `rgb(${r}, ${g}, ${b})`;
+}

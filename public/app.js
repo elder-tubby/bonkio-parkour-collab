@@ -100,8 +100,6 @@ function bindNetworkEvents() {
     }
   });
 
-  
-  
   Network.onObjectsCreatedBatch((newObjects) => {
     if (Array.isArray(newObjects) && newObjects.length > 0) {
       State.set("objects", [...State.get("objects"), ...newObjects]);
@@ -112,10 +110,7 @@ function bindNetworkEvents() {
         .map((o) => o.id);
 
       if (myNewObjectIds.length > 0) {
-        State.set(
-          "selectedObjectIds",
-          myNewObjectIds,
-        );
+        State.set("selectedObjectIds", myNewObjectIds);
       }
     }
   });
@@ -278,6 +273,10 @@ function bindNetworkEvents() {
     UI.show("gameEndPopup");
     UI.showLobbyMessage("Drawing will start when 2 players are ready.");
   });
+
+  Network.onColorsUpdated((colors) => {
+    State.set("colors", colors);
+  });
 }
 
 function watchStateChanges() {
@@ -301,6 +300,7 @@ function watchStateChanges() {
       "selectedObjectIds",
       "hideUsernames",
       "selectionBox",
+      "colors",
     ];
     if (visualKeys.includes(key)) scheduleDraw();
 
@@ -319,6 +319,9 @@ function watchStateChanges() {
             ...spawn,
             diameter: getSpawnDiameter(State.get(key)),
           });
+        break;
+      case "colors": 
+        UI.updateColorIndicators(State.get(key));
         break;
     }
   });
@@ -344,6 +347,7 @@ function initializeGameView(payload = {}) {
   State.set("capZone", payload.capZone);
   State.set("spawnCircle", payload.spawnCircle);
   State.set("mapSize", payload.mapSize ?? 9);
+  State.set("colors", payload.colors); 
 
   UI.hide("home");
   UI.show("canvasWrap");

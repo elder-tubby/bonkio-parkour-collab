@@ -19,6 +19,12 @@ class State {
       socketId: null,
       playerId: null,
       username: "",
+      colors: {
+        background: "rgb(0, 0, 0)",
+        none: "rgb(255, 255, 255)",
+        bouncy: "rgb(167, 196, 190)",
+        death: "rgb(255, 0, 0)",
+      },
 
       gameActive: false,
       players: [],

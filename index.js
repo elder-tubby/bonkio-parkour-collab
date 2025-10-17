@@ -162,6 +162,8 @@ io.on("connection", (socket) => {
     if (!socket.isAdmin) return;
     admin.endGame();
   });
+
+  socket.on(EVENTS.CHANGE_COLORS, () => game.handleChangeColors(socket.id));
 });
 
 const PORT = process.env.PORT || 3000;

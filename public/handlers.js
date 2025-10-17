@@ -181,7 +181,11 @@ function handleCanvasDown(e) {
   }
 
   // Line/select modes: begin drawing / selection box
-  if (drawingMode === "line" || drawingMode === "select") {
+  if (
+    drawingMode === "line" ||
+    drawingMode === "circle" ||
+    drawingMode === "select"
+  ) {
     isDrawing = true;
     State.set("startPt", point);
     if (drawingMode === "select") {
@@ -412,7 +416,8 @@ function handleCanvasMove(e) {
 
     const updatedObjects = preview.originalObjects.map((originalObject) => {
       let updatedObject;
-      if (originalObject.type === "poly") {
+      // This now correctly handles all three types
+      if (originalObject.type === "poly" || originalObject.type === "circle") {
         updatedObject = {
           ...originalObject,
           c: {
@@ -420,7 +425,7 @@ function handleCanvasMove(e) {
             y: originalObject.c.y + dy,
           },
         };
-      } else {
+      } else if (originalObject.type === "line") {
         updatedObject = {
           ...originalObject,
           start: {
@@ -453,6 +458,9 @@ function handleCanvasMove(e) {
       });
     } else if (State.get("drawingMode") === "line") {
       State.set("drawingShape", { type: "line", start: startPt, end: point });
+    } else if (State.get("drawingMode") === "circle") {
+      const radius = distance(startPt, point);
+      State.set("drawingShape", { type: "circle", c: startPt, radius: radius });
     }
   }
 }
@@ -560,7 +568,7 @@ function handleCanvasUp(e) {
     if (preview && preview.objects && mouseMovedSinceDown) {
       preview.objects.forEach((obj) => {
         let payload = { id: obj.id };
-        if (obj.type === "poly") payload.c = obj.c;
+        if (obj.type === "poly" || obj.type === "circle") payload.c = obj.c;
         if (obj.type === "line") {
           payload.start = obj.start;
           payload.end = obj.end;
@@ -601,7 +609,16 @@ function handleCanvasUp(e) {
     const startPt = State.get("startPt");
     const endPt = State.get("mouse");
     if (startPt && distance(startPt, endPt) > 5) {
-      Network.createObject({ start: startPt, end: endPt });
+      Network.createObject({ type: "line", start: startPt, end: endPt });
+    }
+  }
+
+  if (isDrawing && drawingMode === "circle") {
+    const startPt = State.get("startPt");
+    const endPt = State.get("mouse");
+    const radius = distance(startPt, endPt);
+    if (startPt && radius > 2) {
+      Network.createObject({ type: "circle", c: startPt, radius });
     }
   }
 
@@ -694,7 +711,7 @@ function handleKeyDown(e) {
       State.set("drawingMode", "select");
       // Update button text
       const btn = UI.elems.drawModeBtn;
-      if (btn) btn.textContent = "Mode: Select (M)";
+      if (btn) btn.textContent = "Selecting";
     }
   }
 
@@ -745,7 +762,10 @@ function handleKeyDown(e) {
       if (e.ctrlKey) {
         e.preventDefault();
         const objects = State.get("objects") || [];
-        const objectIds = objects.map((o) => o.id);
+        // Filter objects based on selection rules before selecting them
+        const objectIds = objects
+          .filter((obj) => canSelectObject(obj.id))
+          .map((o) => o.id);
         State.set("selectedObjectIds", objectIds);
         return;
       }
@@ -856,6 +876,44 @@ function handleKeyDown(e) {
             break;
         }
       }
+    } else if (object.type === "circle") {
+      if (e.altKey && (key === "arrowup" || key === "arrowdown")) {
+        e.preventDefault();
+        const delta =
+          key === "arrowup" ? (e.shiftKey ? 10 : 1) : e.shiftKey ? -10 : -1;
+        Network.updateObject({ id, radiusDelta: delta });
+      } else {
+        switch (key) {
+          case "b":
+            Network.updateObject({
+              id,
+              circleType: isMultiSelect
+                ? "bouncy"
+                : object.circleType === "bouncy"
+                  ? "none"
+                  : "bouncy",
+            });
+            break;
+          case "d":
+            Network.updateObject({
+              id,
+              circleType: isMultiSelect
+                ? "death"
+                : object.circleType === "death"
+                  ? "none"
+                  : "death",
+            });
+            break;
+          case "n":
+            Network.updateObject({ id, circleType: "none" });
+            break;
+          case "x":
+          case "delete":
+          case "backspace":
+            Network.deleteObject(id);
+            break;
+        }
+      }
     } else if (object.type === "line") {
       if (e.altKey && e.key.startsWith("Arrow")) {
         e.preventDefault();
@@ -915,16 +973,19 @@ const createReorderHandler = (toBack) => () => {
 };
 function createSliderHandlerFactory(elems) {
   return (propName, type) => {
-    const isPoly = type === "poly";
+    // Generic approach: build keys from type and propName
     const uiProp = propName === "a" ? "angle" : propName;
     const capitalized = uiProp.charAt(0).toUpperCase() + uiProp.slice(1);
-    const prefix = isPoly ? `poly${capitalized}` : `line${capitalized}`;
+    const prefix = `${type}${capitalized}`; // e.g., 'lineAngle', 'polyScale', 'circleRadius'
     const sliderKey = `${prefix}Slider`;
     const valueKey = `${prefix}Value`;
 
     const slider = elems[sliderKey];
     const valueLabel = elems[valueKey];
-    if (!slider) return;
+    if (!slider) {
+      console.warn(`Slider with key "${sliderKey}" not found in UI elements.`);
+      return;
+    }
 
     const handleInput = () => {
       if (valueLabel) valueLabel.innerText = slider.value;
@@ -946,7 +1007,6 @@ function createSliderHandlerFactory(elems) {
     slider.addEventListener("input", handleInput);
   };
 }
-
 export function bindUIEvents() {
   const e = UI.elems;
 
@@ -998,6 +1058,7 @@ export function bindUIEvents() {
   sliderHandler("angle", "line");
   sliderHandler("a", "poly"); // 'a' is for angle
   sliderHandler("scale", "poly");
+  sliderHandler("radius", "circle");
 
   // single select handler (remove line/poly separate handlers)
   const createSelectHandler = () => (ev) => {
@@ -1011,8 +1072,12 @@ export function bindUIEvents() {
       if (!obj) return;
 
       // infer property name based on object type
-      const propName = obj.type === "line" ? "lineType" : "polyType";
-
+      const propName =
+        obj.type === "line"
+          ? "lineType"
+          : obj.type === "poly"
+            ? "polyType"
+            : "circleType"; // Simplified logic
       Network.updateObject({ id, [propName]: ev.target.value });
     });
   };
@@ -1037,6 +1102,7 @@ export function bindUIEvents() {
   safeAddEvent(e.polyToBackBtn, "click", createReorderHandler(true));
 
   safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo());
+  safeAddEvent(e.copyLineInfoBtn, "click", () => copyLineInfo());
   safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
 
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
@@ -1050,7 +1116,7 @@ export function bindUIEvents() {
   safeAddEvent(e.popupCloseBtn, "click", () => UI.hide("gameEndPopup"));
 
   safeAddEvent(e.drawModeBtn, "click", () => {
-    const modes = ["line", "poly"]; // Exclude "select" from toggle cycle
+    const modes = ["line", "poly", "circle"]; // Exclude "select" from toggle cycle
     const currentMode = State.get("drawingMode") || "line";
 
     // If currently in select mode (from shift), use the mode before shift
@@ -1071,6 +1137,11 @@ export function bindUIEvents() {
 
     State.clearSelectedObjects();
     State.set("drawingShape", null);
+  });
+
+  safeAddEvent(e.changeColorsBtn, "click", () => {
+    console.log("Change Colors button clicked");
+    Network.changeColors();
   });
 
   safeAddEvent(e.autoGenerateBtn, "click", () => {

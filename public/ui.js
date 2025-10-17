@@ -25,6 +25,7 @@ const SELECTORS = {
   hideUsernamesCheckbox: "#hideUsernamesCheckbox",
   controlBox: ".control-box", // Selector for the main container
   autoGenerateBtn: "#autoGenerateBtn",
+  changeColorsBtn: "#changeColorsBtn",
 };
 
 class UI {
@@ -61,6 +62,8 @@ class UI {
     });
     document.body.appendChild(tooltip);
     this.elems.tooltip = tooltip;
+
+    this.elems.autoGenerateBtn?.classList.add("hidden");
   }
 
   _createUnifiedObjectEditor() {
@@ -75,6 +78,23 @@ class UI {
     controlBox.appendChild(status);
     this.elems.statusText = status;
 
+    // -- NEW: Color Indicators --
+    const colorIndicators = document.createElement("div");
+    colorIndicators.id = "colorIndicators";
+    colorIndicators.className = "color-indicators-container";
+    colorIndicators.innerHTML = `
+      <div class="color-indicator">
+        <span id="colorIndicator-none" class="color-square"></span> Normal
+      </div>
+      <div class="color-indicator">
+        <span id="colorIndicator-bouncy" class="color-square"></span> Bouncy
+      </div>
+      <div class="color-indicator">
+        <span id="colorIndicator-death" class="color-square"></span> Death
+      </div>
+    `;
+    controlBox.appendChild(colorIndicators);
+
     // --- Main Editor Container ---
     const container = document.createElement("div");
     container.className = "editor-container";
@@ -87,12 +107,17 @@ class UI {
     const leftRow1 = document.createElement("div");
     leftRow1.className = "editor-row";
     const drawModeBtn = this._createButton("drawModeBtn", "Mode: Line (M)");
+    const changeColorsBtn = this._createButton(
+      "changeColorsBtn", // Changed from autoGenerateBtn
+      "Change Colors",
+      "Randomize color scheme",
+    );
     const pasteBtn = this._createButton(
       "pasteMapBtn",
       "Paste Map",
       "Paste map from clipboard",
     );
-    leftRow1.append(drawModeBtn, pasteBtn);
+    leftRow1.append(drawModeBtn, pasteBtn, changeColorsBtn);
 
     // Row 2: Delete, Type Select
     const leftRow2 = document.createElement("div");
@@ -181,6 +206,15 @@ class UI {
       "poly-controls",
     );
 
+    const circleRadius = this._createSlider(
+      "circleRadiusSlider",
+      "Radius",
+      1,
+      1000,
+      50,
+      "circle-controls",
+    );
+
     rightCol.append(
       mapSizeRow,
       lineWidth,
@@ -188,6 +222,7 @@ class UI {
       lineAngle,
       polyAngle,
       polyScale,
+      circleRadius, // Add circle radius slider to the DOM
     );
 
     container.append(leftCol, rightCol);
@@ -202,20 +237,29 @@ class UI {
     const controlBox = this.elems.controlBox;
     if (!controlBox) return;
 
+    const indicators = document.getElementById("colorIndicators");
+    if (indicators) {
+      indicators.style.display = count > 0 ? "none" : "flex";
+    }
+
     let mode = "none";
-    let statusText = "Draw by dragging on canvas.";
+    let statusText = ""; // Default to empty
     const drawingMode = State.get("drawingMode");
 
     if (count === 0) {
+      mode = "none";
       if (drawingMode === "poly")
         statusText = "Click to start drawing a polygon.";
-      if (drawingMode === "select")
-        statusText = "Drag on canvas to select objects.";
+      else if (drawingMode === "circle")
+        statusText = "Click and drag to draw a circle.";
+      else statusText = "Draw by dragging on canvas.";
     } else if (count === 1) {
       const object = selectedObjects[0];
-      mode = object.type; // "line" or "poly"
+      mode = object.type; // "line", "poly", or "circle"
+
       if (mode === "line") this.updateLineEditorValues(object);
       if (mode === "poly") this.updatePolygonEditorValues(object);
+      if (mode === "circle") this.updateCircleEditorValues(object);
     } else {
       mode = "multi";
       statusText = `${count} objects selected. Use hotkeys to edit.`;
@@ -224,16 +268,24 @@ class UI {
     controlBox.dataset.editorMode = mode;
     this.setStatus(statusText);
 
-    // Enable/disable buttons based on selection
     const isSelection = count > 0;
-
-    // Hide or show the action rows based on selection
     if (this.elems.selectionActionsRow) {
       this.elems.selectionActionsRow.classList.toggle("hidden", !isSelection);
     }
     if (this.elems.zOrderActionsRow) {
       this.elems.zOrderActionsRow.classList.toggle("hidden", !isSelection);
     }
+  }
+  // -- NEW: Method to update indicator colors --
+  updateColorIndicators(colors) {
+    if (!colors) return;
+    const noneIndicator = document.getElementById("colorIndicator-none");
+    const bouncyIndicator = document.getElementById("colorIndicator-bouncy");
+    const deathIndicator = document.getElementById("colorIndicator-death");
+
+    if (noneIndicator) noneIndicator.style.backgroundColor = colors.none;
+    if (bouncyIndicator) bouncyIndicator.style.backgroundColor = colors.bouncy;
+    if (deathIndicator) deathIndicator.style.backgroundColor = colors.death;
   }
 
   show(selectorKey) {
@@ -264,6 +316,14 @@ class UI {
     this._updateSlider("polyScale", scale);
     if (this.elems.typeSelect)
       this.elems.typeSelect.value = poly.polyType || "none";
+  }
+
+  updateCircleEditorValues(circle) {
+    const radius = Math.round(circle.radius ?? 50);
+    this._updateSlider("circleRadius", radius);
+    if (this.elems.typeSelect) {
+      this.elems.typeSelect.value = circle.circleType || "none";
+    }
   }
 
   updateLobby(players) {
@@ -328,20 +388,23 @@ class UI {
     p.appendChild(senderSpan);
 
     // Regex to find URLs with a capture group
-    const urlRegex = /(\b(?:https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+    const urlRegex =
+      /(\b(?:https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gi;
     const parts = message.split(urlRegex);
 
     // Process parts: odd indices are URLs, even are plain text
     parts.forEach((part, index) => {
       if (!part) return; // Skip empty parts
-      if (index % 2 === 1) { // This is a URL
+      if (index % 2 === 1) {
+        // This is a URL
         const link = document.createElement("a");
         link.href = part;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.textContent = part;
         p.appendChild(link);
-      } else { // This is plain text
+      } else {
+        // This is plain text
         p.appendChild(document.createTextNode(part));
       }
     });
@@ -349,14 +412,14 @@ class UI {
     this.elems.chatMessages.appendChild(p);
     this.elems.chatMessages.scrollTop = this.elems.chatMessages.scrollHeight;
   }
-  
+
   setEndReason(text) {
     const msg = this.elems.gameEndPopup?.querySelector("p");
     if (msg) msg.innerText = text;
   }
 
   toggleLobbyPasswordInput(show) {
-    console.log("toggleLobbyPasswordInput called with:", show)
+    console.log("toggleLobbyPasswordInput called with:", show);
     const existingSection = document.getElementById("lobbyPasswordSection");
 
     if (show && !existingSection) {
@@ -374,7 +437,6 @@ class UI {
     }
   }
 
-
   // --- PRIVATE HELPER METHODS ---
 
   _queryDynamicElements() {
@@ -382,6 +444,7 @@ class UI {
       "status",
       "drawModeBtn",
       "pasteMapBtn",
+      "changeColorsBtn",
       "deleteBtn",
       "typeSelect",
       "toFrontBtn",
@@ -400,6 +463,8 @@ class UI {
       "polyAngleValue",
       "polyScaleSlider",
       "polyScaleValue",
+      "circleRadiusSlider",
+      "circleRadiusValue",
     ];
     dynamicIds.forEach((id) => {
       this.elems[id] = this.elems.controlBox.querySelector(`#${id}`);

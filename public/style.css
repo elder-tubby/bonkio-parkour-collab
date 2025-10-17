@@ -431,20 +431,34 @@ canvas {
 }
 
 /* Dynamic Editor State Management */
+/* Hide all specific control groups by default */
 .line-controls,
-.poly-controls {
+.poly-controls,
+.circle-controls {
   display: none;
 }
-.control-box[data-editor-mode="line"] .line-controls,
+
+/* Show the relevant controls based on the data attribute on the parent */
+.control-box[data-editor-mode="line"] .line-controls {
+  display: flex;
+}
 .control-box[data-editor-mode="poly"] .poly-controls {
   display: flex;
 }
-.control-box:not([data-editor-mode="line"]):not([data-editor-mode="poly"])
+.control-box[data-editor-mode="circle"] .circle-controls {
+  display: flex;
+}
+
+/* Show the status text ONLY when no specific editor is active */
+.control-box:not([data-editor-mode="line"]):not([data-editor-mode="poly"]):not([data-editor-mode="circle"])
   #status {
   display: block;
 }
+
+/* Hide the status text when ANY editor is active */
 .control-box[data-editor-mode="line"] #status,
-.control-box[data-editor-mode="poly"] #status {
+.control-box[data-editor-mode="poly"] #status,
+.control-box[data-editor-mode="circle"] #status {
   display: none;
 }
 
@@ -631,6 +645,27 @@ canvas {
   color: #eee;
   width: 100%;
   font-family: "Lexend", sans-serif;"
+}
+
+/* Add this to your main CSS file */
+.color-indicators-container {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 8px 0;
+    font-size: 12px;
+}
+.color-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.color-square {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #666;
+    border-radius: 2px;
+    display: inline-block;
 }
 
 /* RESPONSIVE */

@@ -3,7 +3,7 @@
  */
 const { v4: uuidv4 } = require("uuid");
 const { EVENTS } = require("./config");
-const { getSpawnDiameter } = require("./utils");
+const { getSpawnDiameter, generateNewColorScheme } = require("./utils");
 
 class GameManager {
   constructor(io, lobby) {
@@ -22,6 +22,12 @@ class GameManager {
       x: 400,
       y: 300,
       diameter: getSpawnDiameter(this.mapSize),
+    };
+    this.colors = {
+      background: "rgb(0, 0, 0)",
+      none: "rgb(255, 255, 255)",
+      bouncy: "rgb(167, 196, 190)",
+      death: "rgb(255, 0, 0)",
     };
     this._lastEventTs = new Map();
   }
@@ -134,6 +140,7 @@ class GameManager {
       capZone: this.capZone,
       spawnCircle: this.spawnCircle,
       mapSize: this.mapSize,
+      colors: this.colors,
     };
   }
   getSnapshotFor(playerId) {
@@ -150,39 +157,61 @@ class GameManager {
   handleObjectCreation(playerId, objectData) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "create", 200))
       return;
-    if (
-      !objectData ||
-      !this._validPoint(objectData.start) ||
-      !this._validPoint(objectData.end)
-    )
-      return;
-
-    const dx = objectData.end.x - objectData.start.x;
-    const dy = objectData.end.y - objectData.start.y;
-    if (dx * dx + dy * dy < 25) return;
+    // Client must specify the type of object to create
+    if (!objectData || !objectData.type) return;
 
     const player = this.lobby.players[playerId];
-    const newObject = {
-      type: "line",
-      id: uuidv4(),
-      playerId,
-      username: player.name,
-      symbol: player.symbol,
-      start: objectData.start,
-      end: objectData.end,
-      lineType: "none",
-      width: Math.hypot(dx, dy),
-      height: 4,
-      angle: this._computeAngle(objectData.start, objectData.end),
-      createdAt: Date.now(),
-    };
+    let newObject = null;
 
-    this.objects.push(newObject);
-    this.participants.forEach((id) => {
-      this.io.to(id).emit(EVENTS.OBJECT_CREATED, newObject);
-    });
+    if (objectData.type === "line") {
+      if (
+        !this._validPoint(objectData.start) ||
+        !this._validPoint(objectData.end)
+      )
+        return;
+      const dx = objectData.end.x - objectData.start.x;
+      const dy = objectData.end.y - objectData.start.y;
+      if (dx * dx + dy * dy < 25) return; // Ignore tiny lines
+
+      newObject = {
+        type: "line",
+        id: uuidv4(),
+        playerId,
+        username: player.name,
+        symbol: player.symbol,
+        start: objectData.start,
+        end: objectData.end,
+        lineType: "none",
+        height: 4,
+        createdAt: Date.now(),
+      };
+    } else if (objectData.type === "circle") {
+      if (
+        !this._validPoint(objectData.c) ||
+        !(typeof objectData.radius === "number" && objectData.radius > 0)
+      )
+        return;
+
+      newObject = {
+        type: "circle",
+        id: uuidv4(),
+        playerId,
+        username: player.name,
+        symbol: player.symbol,
+        c: objectData.c,
+        radius: Math.max(1, Math.min(1000, objectData.radius)),
+        circleType: "none",
+        createdAt: Date.now(),
+      };
+    }
+
+    if (newObject) {
+      this.objects.push(newObject);
+      this.participants.forEach((id) => {
+        this.io.to(id).emit(EVENTS.OBJECT_CREATED, newObject);
+      });
+    }
   }
-
   // In gameManager.js, modify the handleObjectsCreationBatch method:
   handleObjectsCreationBatch(playerId, batchData) {
     if (
@@ -226,7 +255,7 @@ class GameManager {
       });
     }
   }
-  
+
   handleObjectDeletion(playerId, objectId) {
     if (!this._canModifyObject(playerId, objectId)) return;
     this.objects = this.objects.filter((o) => o.id !== objectId);
@@ -251,6 +280,8 @@ class GameManager {
       this._updateLine(object, payload);
     } else if (object.type === "poly") {
       this._updatePolygon(object, payload);
+    } else if (object.type === "circle") {
+      this._updateCircle(object, payload);
     }
   }
 
@@ -386,7 +417,37 @@ class GameManager {
       this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedPoly),
     );
   }
-  
+
+  _updateCircle(currentCircle, payload) {
+    let updatedCircle = { ...currentCircle };
+
+    if (payload.nudge) {
+      updatedCircle.c = {
+        x: updatedCircle.c.x + (payload.nudge.x || 0) * 2,
+        y: updatedCircle.c.y + (payload.nudge.y || 0) * 2,
+      };
+    }
+    if (this._validPoint(payload.c)) updatedCircle.c = payload.c;
+    if (payload.radiusDelta)
+      updatedCircle.radius = (updatedCircle.radius || 0) + payload.radiusDelta;
+    if (typeof payload.radius === "number")
+      updatedCircle.radius = payload.radius;
+    if (typeof payload.circleType === "string")
+      updatedCircle.circleType = payload.circleType;
+
+    updatedCircle.radius = Math.max(
+      1,
+      Math.min(1000, updatedCircle.radius || 0),
+    );
+
+    const objIndex = this.objects.findIndex((o) => o.id === updatedCircle.id);
+    if (objIndex !== -1) this.objects[objIndex] = updatedCircle;
+
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedCircle),
+    );
+  }
+
   handleObjectsReorder(playerId, { ids, toBack }) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "reorder", 250))
       return;
@@ -457,6 +518,8 @@ class GameManager {
     });
   }
 
+  // in gameManager.js
+
   handlePasteLines(playerId, pasteData) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "paste", 3000))
       return;
@@ -470,7 +533,7 @@ class GameManager {
 
       const base = {
         id: uuidv4(),
-        playerId: "",
+        playerId: "", // Pasted objects are unowned until edited
         username: player.name,
         symbol: " ", // Pasted objects have a blank symbol
         createdAt: Date.now(),
@@ -498,7 +561,6 @@ class GameManager {
         this._validPoint(objData.c) &&
         Array.isArray(objData.v)
       ) {
-        
         newObjects.push({
           ...base,
           type: "poly",
@@ -508,21 +570,63 @@ class GameManager {
           scale: objData.scale || 1,
           polyType: objData.polyType || "none",
         });
+      } else if (
+        // --- CORRECTED LOGIC FOR CIRCLES ---
+        objData.type === "circle" &&
+        this._validPoint(objData.c) && // CHANGED: Look for the 'c' object
+        typeof objData.radius === "number"
+      ) {
+        let circleType = "none";
+        if (objData.isBouncy) circleType = "bouncy";
+        if (objData.isDeath) circleType = "death";
+
+        newObjects.push({
+          ...base,
+          type: "circle",
+          c: objData.c, // CHANGED: Use the 'c' object directly
+          radius: objData.radius,
+          circleType: circleType,
+        });
       }
     }
-    
+
     if (newObjects.length > 0) {
       this.objects = newObjects;
+
+      let colorsUpdated = false;
+      if (pasteData.colors && typeof pasteData.colors === "object") {
+        const { background, none, bouncy, death } = pasteData.colors;
+        if (background && none && bouncy && death) {
+          this.colors = pasteData.colors;
+          colorsUpdated = true;
+        }
+      }
+
       if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);
       if (pasteData.spawn && this._validPoint(pasteData.spawn))
         this.setSpawnCircle(playerId, pasteData.spawn);
       if (pasteData.capZone) this.setCapZone(playerId, pasteData.capZone);
 
-      // Use OBJECTS_REORDERED to replace the entire map at once
       this.participants.forEach((id) => {
         this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
+        if (colorsUpdated) {
+          this.io.to(id).emit(EVENTS.COLORS_UPDATED, this.colors);
+        }
       });
     }
+  }
+  handleChangeColors(playerId) {
+    console.log("Handling color change request from player:", playerId);
+    if (!this._canPlayerAct(playerId)) return;
+    console.log("Player can act, checking allow");
+    if (!this._allow(playerId, "changeColor", 1000)) return;
+
+    console.log("Changing colors. Old colors: ", this.colors);
+    this.colors = generateNewColorScheme(this.colors);
+    console.log("New colors: ", this.colors);
+    this.participants.forEach((id) => {
+      this.io.to(id).emit(EVENTS.COLORS_UPDATED, this.colors);
+    });
   }
 
   // --- Helpers & Validation ---

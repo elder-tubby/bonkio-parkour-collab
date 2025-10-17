@@ -24,6 +24,7 @@ module.exports = {
     OBJECT_UPDATED: "objectUpdated", // Replaces LINE_UPDATED, POLYGON_UPDATED
     OBJECT_DELETED: "objectDeleted", // Replaces LINE_DELETED, POLYGON_DELETED
     OBJECTS_REORDERED: "objectsReordered",
+    COLORS_UPDATED: "colorsUpdated",
 
     // Client -> Server
     JOIN_LOBBY: "joinLobby",
@@ -49,6 +50,7 @@ module.exports = {
     ADMIN_END_GAME: "admin:end_game",
     KICKED: "kicked",
     LOBBY_JOIN_FAIL: "lobby:join_fail",
+    CHANGE_COLORS: "changeColors",
   },
   PORT: 3000,
   CAP_ZONE_OPTIONS: [

@@ -77,6 +77,10 @@ export function joinLobby(name, password) {
   socket.emit(EVENTS.JOIN_LOBBY, { name, password });
 }
 
+export function changeColors() {
+  socket.emit(EVENTS.CHANGE_COLORS);
+}
+
 // ---- LISTENERS (Server -> Client) ----
 
 export function onConnectWithId(cb) {
@@ -182,5 +186,7 @@ export function onAdminLoginSuccess(cb) {
 export function onAdminLoginFail(cb) {
   socket.on(EVENTS.ADMIN_LOGIN_FAIL, cb);
 }
-
+export function onColorsUpdated(cb) {
+  socket.on(EVENTS.COLORS_UPDATED, cb);
+}
 export { socket };
