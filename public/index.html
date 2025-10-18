@@ -107,7 +107,7 @@
             </div>
             <div class="copy-map-row">
               <button id="autoGenerateBtn" class="btn btn-small">
-                Generate shapes
+                Auto-generate
               </button>
             </div>
           </div>
@@ -157,6 +157,10 @@
               <li>
                 <strong>[ ]</strong>
                 <span class="hotkey-desc">– Move to back/front</span>
+              </li>
+              <li>
+                <strong>G</strong>
+                <span class="hotkey-desc">– Auto-generate pop-up</span>
               </li>
             </ul>
           </div>
@@ -215,8 +219,8 @@
     >
       <div class="popup-box">
         <button id="agpCloseBtn" class="popup-close" aria-label="Close">×</button>
-        <h2>Auto-Generate Map</h2>
-        <p>Adjust parameters for map generation.</p>
+        <h2>Auto-Generate Shapes</h2>
+        <p>Adjust values for random generation.</p>
 
         <form id="agpForm">
           <div class="popup-form-row">
@@ -239,7 +243,7 @@
             >
               Min Distance
             </label>
-            <input type="number" id="agpMinDistance" min="0" max="100" value="10" />
+            <input type="number" id="agpMinDistance" min="0" max="200" value="10" />
           </div>
 
           <div class="popup-form-row">
@@ -249,7 +253,7 @@
             >
               Max Vertices
             </label>
-            <input type="number" id="agpMaxVertices" min="3" max="20" value="12" />
+            <input type="number" id="agpMaxVertices" min="3" max="30" value="12" />
           </div>
 
           <div class="popup-form-row">
@@ -257,7 +261,7 @@
             <input
               type="number"
               id="agpMinArea"
-              min="1000"
+              min="200"
               max="50000"
               step="100"
               value="8000"
@@ -269,7 +273,7 @@
             <input
               type="number"
               id="agpMaxArea"
-              min="1000"
+              min="300"
               max="50000"
               step="100"
               value="30000"

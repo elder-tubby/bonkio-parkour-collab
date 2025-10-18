@@ -285,6 +285,12 @@ export function getHoveredObject(point, objects) {
       ) {
         return obj;
       }
+    } else if (obj.type === "circle") {
+      // --- NEW ---
+      // Check if point is within the circle's radius
+      if (distance(point, obj.c) < obj.radius) {
+        return obj;
+      }
     }
   }
   return null;

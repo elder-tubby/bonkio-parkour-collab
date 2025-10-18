@@ -40,7 +40,7 @@ function colorDistance(color1, color2) {
 
 // Main function to generate a new, valid color scheme
 function generateNewColorScheme(previousScheme) {
-  const MIN_DISTANCE = 10000; // Confidence interval: lower = more similar colors allowed
+  const MIN_DISTANCE = 100; // Confidence interval: lower = more similar colors allowed
   let newScheme;
   let isValid = false;
 

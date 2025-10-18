@@ -571,15 +571,11 @@ class GameManager {
           polyType: objData.polyType || "none",
         });
       } else if (
-        // --- CORRECTED LOGIC FOR CIRCLES ---
         objData.type === "circle" &&
-        this._validPoint(objData.c) && // CHANGED: Look for the 'c' object
+        this._validPoint(objData.c) &&
         typeof objData.radius === "number"
       ) {
-        let circleType = "none";
-        if (objData.isBouncy) circleType = "bouncy";
-        if (objData.isDeath) circleType = "death";
-
+        const circleType = objData.circleType || "none";
         newObjects.push({
           ...base,
           type: "circle",

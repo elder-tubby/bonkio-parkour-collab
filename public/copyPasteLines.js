@@ -364,6 +364,8 @@ function gameToExternal(gameX, gameY) {
 /**
  * Rewritten pasteLines to handle the new JSON format with a unified `objects` array.
  */
+// In public/copyPasteLines.js
+
 export async function pasteLines() {
   const existing = State.get("objects");
   if (Array.isArray(existing) && existing.length > 0) {
@@ -386,20 +388,88 @@ export async function pasteLines() {
     return;
   }
 
-  if (!data || !Array.isArray(data.objects)) {
-    showToast("JSON missing required 'objects' array.", true);
+  // --- NEW: Handle old format ---
+  // Check for 'objects' array first, if not found, check for 'lines' array
+  const objectList = data.objects || data.lines;
+
+  if (!data || !Array.isArray(objectList)) {
+    showToast("JSON missing required 'objects' or 'lines' array.", true);
     return;
   }
 
-  let importedColors = null;
+  // Determine if we are using the old format
+  const isOldFormat = !data.objects && data.lines;
+  // --- End new logic ---
+
+  let importedColors = null; // Will hold the final colors object
+
+  // Check for modern 'colors' object first
   if (data.colors && typeof data.colors === "object") {
-    // Basic validation
     const { background, none, bouncy, death } = data.colors;
     if (background && none && bouncy && death) {
       importedColors = data.colors;
     }
-  }
+  } else if (isOldFormat) {
+    // --- NEW: Extract colors from old format if 'colors' object is missing ---
+    let foundColors = {
+      background: null,
+      none: null,
+      bouncy: null,
+      death: null,
+    };
+    // Find the first instance of each type to get its color
+    for (const line of objectList) {
+      if (!line) continue;
+      const colorDecimal = line.color; // Old format uses decimal
 
+      // --- Important: Extract BG color even if noPhysics is true ---
+      if (line.isBgLine && foundColors.background === null) {
+        foundColors.background = decimalToRgb(colorDecimal);
+      }
+      // --- Skip further color extraction if it's a noPhysics object (unless it's BG) ---
+      if (line.noPhysics === true && !line.isBgLine) continue;
+
+      // Extract other colors only from objects that have physics
+      if (line.isBouncy && foundColors.bouncy === null) {
+        foundColors.bouncy = decimalToRgb(colorDecimal);
+      } else if (line.isDeath && foundColors.death === null) {
+        foundColors.death = decimalToRgb(colorDecimal);
+      } else if (
+        !line.isBgLine &&
+        !line.isBouncy &&
+        !line.isDeath &&
+        foundColors.none === null
+      ) {
+        // Assume it's 'none' if not background, bouncy, or death
+        foundColors.none = decimalToRgb(colorDecimal);
+      }
+
+      // Stop searching if all found
+      if (
+        foundColors.background &&
+        foundColors.none &&
+        foundColors.bouncy &&
+        foundColors.death
+      ) {
+        break;
+      }
+    }
+    // Use defaults if any color type wasn't found
+    importedColors = {
+      background:
+        foundColors.background ||
+        State.get("colors").background ||
+        "rgb(0, 0, 0)",
+      none:
+        foundColors.none || State.get("colors").none || "rgb(255, 255, 255)",
+      bouncy:
+        foundColors.bouncy ||
+        State.get("colors").bouncy ||
+        "rgb(167, 196, 190)",
+      death: foundColors.death || State.get("colors").death || "rgb(255, 0, 0)",
+    };
+    // --- End color extraction ---
+  }
   const GW = UI.elems.canvas.width;
   const GH = UI.elems.canvas.height;
   if (!(GW > 0 && GH > 0)) {
@@ -410,16 +480,23 @@ export async function pasteLines() {
   const importedObjects = [];
   let capZoneData = null;
 
-  for (const obj of data.objects) {
+  for (const obj of objectList) {
+    // Use the determined objectList
     if (!obj) continue;
-
+    // --- NEW: Skip objects if noPhysics is true (unless it's the background) ---
+    if (obj.noPhysics === true && !obj.isBgLine) {
+      continue; // Ignore this object
+    }
     if (obj.isCapzone) {
       capZoneData = obj;
       continue;
     }
     if (obj.isBgLine) continue;
 
-    if (obj.type === "poly") {
+    // --- NEW: Force type to 'line' if old format is detected ---
+    const objType = isOldFormat ? "line" : obj.type;
+
+    if (objType === "poly") {
       const centerGame = externalToGame(obj.x, obj.y);
       const scaleX = GW / 730;
       const scaleY = GH / 500;
@@ -441,7 +518,7 @@ export async function pasteLines() {
         scale: obj.scale || 1,
         polyType,
       });
-    } else if (obj.type === "circle") {
+    } else if (objType === "circle") {
       const centerGame = externalToGame(obj.x, obj.y);
       const scaleX = GW / 730;
       const scaleY = GH / 500;
@@ -458,7 +535,7 @@ export async function pasteLines() {
         radius: radiusGame,
         circleType,
       });
-    } else if (obj.type === "line") {
+    } else if (objType === "line") {
       const aExtRad = (obj.angle * Math.PI) / 180;
       const halfLen = obj.width / 2;
       const extStart = {
@@ -474,6 +551,7 @@ export async function pasteLines() {
       const endGame = externalToGame(extEnd.x, extEnd.y);
 
       let lineType = "none";
+      // Safely check properties that might not exist in old format
       if (obj.isBouncy) lineType = "bouncy";
       if (obj.isDeath) lineType = "death";
 
@@ -489,8 +567,7 @@ export async function pasteLines() {
     }
   }
 
-  // Handle spawn
-  let spawnGame = { x: GW / 2, y: GH / 2 }; // Default
+  let spawnGame = { x: GW / 2, y: GH / 2 }; // Default to center
   if (
     data.spawn &&
     typeof data.spawn.spawnX === "number" &&
@@ -498,7 +575,25 @@ export async function pasteLines() {
   ) {
     const extSpawnX = data.spawn.spawnX + 935;
     const extSpawnY = data.spawn.spawnY + 350;
-    spawnGame = externalToGame(extSpawnX, extSpawnY);
+    const potentialSpawnGame = externalToGame(extSpawnX, extSpawnY); // Calculate potential new spawn
+
+    // --- NEW: Check if the calculated spawn is within canvas bounds ---
+    if (
+      potentialSpawnGame.x >= 0 &&
+      potentialSpawnGame.x <= GW &&
+      potentialSpawnGame.y >= 0 &&
+      potentialSpawnGame.y <= GH
+    ) {
+      // Only update spawnGame if the coordinates are valid
+      spawnGame = potentialSpawnGame;
+    } else {
+      console.warn(
+        "Pasted spawn coordinates are outside canvas bounds. Using default spawn.",
+      );
+      // Optional: show a toast message to the user
+      // showToast("Pasted spawn is outside canvas. Using default.", true);
+    }
+    // --- End new check ---
   }
 
   // Handle CapZone
@@ -526,7 +621,6 @@ export async function pasteLines() {
     mapSize,
     colors: importedColors,
   };
-
   Network.pasteLines(payload);
   showToast(`Pasting ${importedObjects.length} objects...`);
 }

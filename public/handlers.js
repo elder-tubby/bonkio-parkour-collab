@@ -355,6 +355,14 @@ function handleCanvasMove(e) {
           `${padLabel("X")} ${padValue(hoveredObject.c.x.toFixed(1))}`,
           `${padLabel("Y")} ${padValue(hoveredObject.c.y.toFixed(1))}`,
         ].join("\n");
+      } else if (hoveredObject.type === "circle") {
+        // --- NEW ---
+        tooltipText = [
+          `${padLabel("Type")} ${padValue("Circle")}`,
+          `${padLabel("X")} ${padValue(hoveredObject.c.x.toFixed(1))}`,
+          `${padLabel("Y")} ${padValue(hoveredObject.c.y.toFixed(1))}`,
+          `${padLabel("Radius")} ${padValue(hoveredObject.radius.toFixed(1))}`,
+        ].join("\n");
       }
 
       tooltip.innerHTML = tooltipText;
@@ -750,6 +758,11 @@ function handleKeyDown(e) {
   if (key === "m") {
     const btn = UI.elems.drawModeBtn;
     if (btn) btn.click();
+    return;
+  }
+  if (key === "g") {
+    e.preventDefault();
+    UI.show("autoGeneratePopup");
     return;
   }
   // General hotkeys

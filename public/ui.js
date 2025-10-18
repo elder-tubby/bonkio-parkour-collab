@@ -462,8 +462,8 @@ class UI {
     const safeWeight = (el) => Math.max(0, parseInt(el.value, 10) || 0);
 
     // Validate and swap area if min > max
-    let minArea = safeNum(this.elems.agpMinArea, 1000, 50000, 8000);
-    let maxArea = safeNum(this.elems.agpMaxArea, 1000, 50000, 30000);
+    let minArea = safeNum(this.elems.agpMinArea, 200, 50000, 8000);
+    let maxArea = safeNum(this.elems.agpMaxArea, 500, 50000, 30000);
     if (minArea > maxArea) {
       [minArea, maxArea] = [maxArea, minArea]; // Swap if inverted
       this._updateSlider("agpMinArea", minArea);
@@ -488,10 +488,10 @@ class UI {
 
     return {
       maxPolygons: safeNum(this.elems.agpMaxPolygons, 1, 200, 50),
-      minDistance: safeNum(this.elems.agpMinDistance, 0, 100, 10),
-      maxVertices: safeNum(this.elems.agpMaxVertices, 3, 20, 12),
+      minDistance: safeNum(this.elems.agpMinDistance, 0, 200, 10),
+      maxVertices: safeNum(this.elems.agpMaxVertices, 3, 30, 12),
       minArea: minArea,
-      maxArea: maxArea,
+      maxArea: maxArea,  
       typeWeights: typeWeights,
     };
   }

@@ -402,12 +402,35 @@ class Canvas {
     const capZone = State.get("capZone");
     if (capZone && capZone.x !== null) {
       const { x, y, width, height } = capZone;
-      ctx.font = "9px Lexend";
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "yellow";
+
+      ctx.save();
+
+      // Draw a thick black outline first
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 4;
       ctx.strokeRect(x, y, width, height);
+
+      // Then draw a thinner yellow line on top
+      ctx.strokeStyle = "yellow";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+
+      // Draw the text with a black outline
+      ctx.font = "9px Lexend";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const textX = x + width / 2;
+      const textY = y + height / 2;
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round";
+      ctx.strokeText("CZ", textX, textY);
+
       ctx.fillStyle = "yellow";
-      ctx.fillText("CZ", x + width / 3, y + height / 2 + 3);
+      ctx.fillText("CZ", textX, textY);
+
+      ctx.restore();
     }
   }
 }
