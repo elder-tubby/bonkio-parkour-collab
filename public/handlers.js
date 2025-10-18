@@ -236,8 +236,10 @@ function addPolygonPoint(point) {
       }));
       return { v: relativeVertices, c: center };
     });
-    Network.createObjectsBatch({ objects: polygonsToSend });
-
+    Network.createObjectsBatch({
+      objects: polygonsToSend,
+      isAutoGeneration: false,
+    });
     State.set("drawingShape", null);
     UI.setStatus("Click on the canvas to start drawing a polygon.");
   } else {
@@ -1144,18 +1146,48 @@ export function bindUIEvents() {
     Network.changeColors();
   });
 
+  // In handlers.js, inside bindUIEvents()
+
+  // --- Replace this handler ---
   safeAddEvent(e.autoGenerateBtn, "click", () => {
-    // Safety Check: Do not run if objects already exist.
+    // Now just shows the popup
+    UI.show("autoGeneratePopup");
+  });
+
+  // --- Add these new handlers ---
+  safeAddEvent(e.agpCloseBtn, "click", () => UI.hide("autoGeneratePopup"));
+
+  // Close popup if user clicks outside the content box
+  safeAddEvent(e.autoGeneratePopup, "click", (ev) => {
+    if (ev.target === e.autoGeneratePopup) {
+      UI.hide("autoGeneratePopup");
+    }
+  });
+
+  // Handle the "Generate" button click
+  safeAddEvent(e.agpForm, "submit", (ev) => {
+    ev.preventDefault();
+
+    // 1. Safety Check
     if (State.get("objects").length > 0) {
       showToast("Clear the map before auto-generating!", true);
       return;
     }
 
-    const newPolygons = generateMap();
+    // 2. Get validated options from UI
+    const options = UI.getGenerationOptions();
 
+    // 3. Run generation
+    const newPolygons = generateMap(options);
+
+    // 4. Send to server and give feedback
     if (newPolygons && newPolygons.length > 0) {
-      Network.createObjectsBatch({ objects: newPolygons });
-      showToast("Map generated successfully!");
+      Network.createObjectsBatch({
+        objects: newPolygons,
+        isAutoGeneration: true,
+      });
+      showToast(`Generated ${newPolygons.length} new polygons!`);
+      UI.hide("autoGeneratePopup"); // Auto-close on success
     } else {
       showToast("Map generation failed. Please try again.", true);
     }

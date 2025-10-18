@@ -88,6 +88,7 @@ body {
 
 
 input[type="text"],
+input[type="number"], 
 select {
   font-family: var(--font-family);
   padding: 0.5rem;
@@ -97,6 +98,15 @@ select {
   color: #eee;
   font-size: 14px;
   width: 100%;
+}
+
+/* Optional: Add a clean focus style for all inputs */
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus {
+  border-color: #708090; /* A subtle accent color */
+  box-shadow: 0 0 5px rgba(112, 128, 144, 0.5);
+  outline: none;
 }
 
 select {
@@ -647,7 +657,66 @@ canvas {
   font-family: "Lexend", sans-serif;"
 }
 
-/* Add this to your main CSS file */
+/* Add these to your style.css */
+
+.popup-box form {
+  margin-top: 1rem;
+}
+
+.popup-form-row {
+  display: grid;
+  grid-template-columns: 1fr 100px; /* Label | Input */
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.popup-form-row label {
+  text-align: left;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.popup-form-row input[type="number"] {
+  width: 100%; /* Fill the 100px column */
+  padding: 0.4rem;
+  font-size: 13px;
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+
+.weights-label {
+  display: block;
+  text-align: left;
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+
+.weights-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+.weights-row label {
+  text-align: center;
+  font-size: 12px;
+  margin-bottom: 4px;
+  display: block;
+  color: #aaa;
+}
+.weights-row input[type="number"] {
+  width: 100%;
+}
+
+.popup-box .btn {
+  margin-top: 1rem;
+  width: 100%;
+}
 .color-indicators-container {
     display: flex;
     justify-content: center;

@@ -220,7 +220,7 @@ class GameManager {
     )
       return;
     if (!batchData || !Array.isArray(batchData.objects)) return;
-
+    const isAutoGeneration = batchData.isAutoGeneration === true;
     const player = this.lobby.players[playerId];
     const newObjects = [];
 
@@ -234,9 +234,9 @@ class GameManager {
         newObjects.push({
           type: "poly",
           id: uuidv4(),
-          playerId,
+          playerId: isAutoGeneration ? " " : playerId,
           username: player.name,
-          symbol: player.symbol,
+          symbol: isAutoGeneration ? " " : player.symbol,
           v: polyData.v,
           c: polyData.c,
           // --- FIX: Use passed-in values or provide defaults ---

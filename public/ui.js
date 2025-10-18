@@ -26,6 +26,18 @@ const SELECTORS = {
   controlBox: ".control-box", // Selector for the main container
   autoGenerateBtn: "#autoGenerateBtn",
   changeColorsBtn: "#changeColorsBtn",
+  autoGeneratePopup: "#autoGeneratePopup",
+  agpCloseBtn: "#agpCloseBtn",
+  agpForm: "#agpForm",
+  agpGenerateBtn: "#agpGenerateBtn",
+  agpMaxPolygons: "#agpMaxPolygons",
+  agpMinDistance: "#agpMinDistance",
+  agpMaxVertices: "#agpMaxVertices",
+  agpMinArea: "#agpMinArea",
+  agpMaxArea: "#agpMaxArea",
+  agpWeightNone: "#agpWeightNone",
+  agpWeightBouncy: "#agpWeightBouncy",
+  agpWeightDeath: "#agpWeightDeath",
 };
 
 class UI {
@@ -63,7 +75,7 @@ class UI {
     document.body.appendChild(tooltip);
     this.elems.tooltip = tooltip;
 
-    this.elems.autoGenerateBtn?.classList.add("hidden");
+    // this.elems.autoGenerateBtn?.classList.add("hidden");
   }
 
   _createUnifiedObjectEditor() {
@@ -435,6 +447,53 @@ class UI {
     } else if (!show && existingSection) {
       existingSection.remove();
     }
+  }
+
+  // In ui.js, inside the UI class
+
+  getGenerationOptions() {
+    // Helper to safely parse, clamp, and default a number input
+    const safeNum = (el, min, max, defaultVal) => {
+      let val = parseInt(el.value, 10);
+      if (isNaN(val)) val = defaultVal;
+      return Math.max(min, Math.min(max, val));
+    };
+    // Helper for weights (min 0)
+    const safeWeight = (el) => Math.max(0, parseInt(el.value, 10) || 0);
+
+    // Validate and swap area if min > max
+    let minArea = safeNum(this.elems.agpMinArea, 1000, 50000, 8000);
+    let maxArea = safeNum(this.elems.agpMaxArea, 1000, 50000, 30000);
+    if (minArea > maxArea) {
+      [minArea, maxArea] = [maxArea, minArea]; // Swap if inverted
+      this._updateSlider("agpMinArea", minArea);
+      this._updateSlider("agpMaxArea", maxArea);
+    }
+
+    const typeWeights = {
+      none: safeWeight(this.elems.agpWeightNone),
+      bouncy: safeWeight(this.elems.agpWeightBouncy),
+      death: safeWeight(this.elems.agpWeightDeath),
+    };
+
+    // Ensure at least one weight is non-zero, otherwise default to 'none'
+    if (
+      typeWeights.none === 0 &&
+      typeWeights.bouncy === 0 &&
+      typeWeights.death === 0
+    ) {
+      typeWeights.none = 1;
+      if (this.elems.agpWeightNone) this.elems.agpWeightNone.value = "1";
+    }
+
+    return {
+      maxPolygons: safeNum(this.elems.agpMaxPolygons, 1, 200, 50),
+      minDistance: safeNum(this.elems.agpMinDistance, 0, 100, 10),
+      maxVertices: safeNum(this.elems.agpMaxVertices, 3, 20, 12),
+      minArea: minArea,
+      maxArea: maxArea,
+      typeWeights: typeWeights,
+    };
   }
 
   // --- PRIVATE HELPER METHODS ---
