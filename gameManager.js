@@ -286,8 +286,23 @@ class GameManager {
   }
 
   _updateLine(currentLine, payload) {
-    let updatedLine = { ...currentLine };
+    // 1. Get derived properties from the *current* line state
+    const currentProps = {
+      dx: currentLine.end.x - currentLine.start.x,
+      dy: currentLine.end.y - currentLine.start.y,
+    };
+    const currentWidth = Math.hypot(currentProps.dx, currentProps.dy);
+    const currentAngle = this._computeAngle(currentLine.start, currentLine.end);
+    const currentHeight =
+      typeof currentLine.height === "number" ? currentLine.height : 4;
 
+    // 2. Initialize updatedLine with these guaranteed-to-be-correct values
+    let updatedLine = {
+      ...currentLine,
+      width: currentWidth,
+      height: currentHeight,
+      angle: currentAngle,
+    };
     const isMoving =
       (payload.nudge && (payload.nudge.x || payload.nudge.y)) ||
       (this._validPoint(payload.start) && this._validPoint(payload.end));
@@ -315,23 +330,27 @@ class GameManager {
       updatedLine.start = payload.start;
       updatedLine.end = payload.end;
     }
+
+    // --- This block now safely modifies the pre-populated values ---
     if (payload.widthDelta)
-      updatedLine.width = (updatedLine.width || 0) + payload.widthDelta;
+      updatedLine.width = updatedLine.width + payload.widthDelta;
     if (payload.heightDelta)
-      updatedLine.height = (updatedLine.height || 0) + payload.heightDelta;
+      updatedLine.height = updatedLine.height + payload.heightDelta;
     if (payload.angleDelta)
-      updatedLine.angle = (updatedLine.angle || 0) + payload.angleDelta;
+      updatedLine.angle = updatedLine.angle + payload.angleDelta;
     if (typeof payload.width === "number") updatedLine.width = payload.width;
     if (typeof payload.height === "number") updatedLine.height = payload.height;
     if (typeof payload.angle === "number") updatedLine.angle = payload.angle;
     if (typeof payload.lineType === "string")
       updatedLine.lineType = payload.lineType;
 
-    updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width || 0));
-    updatedLine.height = Math.max(1, Math.min(1000, updatedLine.height || 0));
-    updatedLine.angle = (((updatedLine.angle || 0) % 360) + 360) % 360;
+    // --- Safely clamp values ---
+    updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width));
+    updatedLine.height = Math.max(1, Math.min(1000, updatedLine.height));
+    updatedLine.angle = ((updatedLine.angle % 360) + 360) % 360;
 
     if (isMoving && !isResizing) {
+      // This logic is fine, it recalculates from start/end
       const dx = updatedLine.end.x - updatedLine.start.x;
       const dy = updatedLine.end.y - updatedLine.start.y;
       updatedLine.width = Math.hypot(dx, dy);
@@ -340,8 +359,9 @@ class GameManager {
         updatedLine.end,
       );
     } else if (isResizing) {
+      // This logic is now safe, because updatedLine.width/angle are correct
       const center = {
-        x: (currentLine.start.x + currentLine.end.x) / 2,
+        x: (currentLine.start.x + currentLine.end.x) / 2, // Use currentLine for stable center
         y: (currentLine.start.y + currentLine.end.y) / 2,
       };
       const w = updatedLine.width;
@@ -358,7 +378,6 @@ class GameManager {
       this.io.to(id).emit(EVENTS.OBJECT_UPDATED, updatedLine),
     );
   }
-
   // Replace your existing _updatePolygon with the snippet below
 
   _updatePolygon(currentPoly, payload) {
@@ -601,8 +620,13 @@ class GameManager {
       if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);
       if (pasteData.spawn && this._validPoint(pasteData.spawn))
         this.setSpawnCircle(playerId, pasteData.spawn);
-      if (pasteData.capZone) this.setCapZone(playerId, pasteData.capZone);
-
+      // --- FIX: Only pass x and y from pasted capZone data ---
+      if (pasteData.capZone && this._validPoint(pasteData.capZone)) {
+        this.setCapZone(playerId, {
+          x: pasteData.capZone.x,
+          y: pasteData.capZone.y,
+        });
+      }
       this.participants.forEach((id) => {
         this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
         if (colorsUpdated) {

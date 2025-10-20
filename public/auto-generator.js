@@ -165,8 +165,11 @@ export function generate(options = {}) {
     return [];
   }
 
-  // Define a margin so polygons don't generate right on the edge
-  const margin = opts.radiusRange.max * 0.5;
+  // --- START FIX ---
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
+  // --- END FIX ---
+
   const allGeneratedPolygons = [];
   const allGeneratedBounds = [];
 
@@ -183,11 +186,13 @@ export function generate(options = {}) {
       attempt < opts.generationAttemptsPerPolygon;
       attempt++
     ) {
-      // 1. Get random center
+      // 1. Get random center (no margin, can be anywhere on canvas)
+      // --- START FIX ---
       const randomCenter = {
-        x: randomFloat(margin, canvas.width - margin),
-        y: randomFloat(margin, canvas.height - margin),
+        x: randomFloat(0, canvasWidth),
+        y: randomFloat(0, canvasHeight),
       };
+      // --- END FIX ---
 
       // 2. Generate vertices
       const vertices = generateRandomVertices(randomCenter, opts);
@@ -195,6 +200,17 @@ export function generate(options = {}) {
 
       // 3. Get bounding box
       const newBounds = calculateBoundingBox(vertices);
+
+      // --- START FIX: Check if polygon is inside canvas boundaries ---
+      if (
+        newBounds.minX < 0 ||
+        newBounds.maxX > canvasWidth ||
+        newBounds.minY < 0 ||
+        newBounds.maxY > canvasHeight
+      ) {
+        continue; // This polygon is out of bounds, try a new one
+      }
+      // --- END FIX ---
 
       // 4. Check for overlap with existing polygons
       let overlaps = false;

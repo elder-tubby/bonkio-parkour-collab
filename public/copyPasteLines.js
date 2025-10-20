@@ -599,17 +599,32 @@ export async function pasteLines() {
   // Handle CapZone
   let capZoneGame = State.get("capZone"); // Default
   if (capZoneData) {
-    const scaleX = GW / 730;
-    const scaleY = GH / 500;
+    // 1. Get the new center position from the pasted data (works for line or poly)
     const czCenterGame = externalToGame(capZoneData.x, capZoneData.y);
-    const czWidthGame = capZoneData.width * scaleX;
-    const czHeightGame = capZoneData.height * scaleY;
-    capZoneGame = {
-      x: czCenterGame.x - czWidthGame / 2,
-      y: czCenterGame.y - czHeightGame / 2,
-      width: czWidthGame,
-      height: czHeightGame,
-    };
+
+    // 2. Get the *current* (existing) dimensions from the state
+    const currentCZ = State.get("capZone");
+    const czWidthGame = currentCZ.width;
+    const czHeightGame = currentCZ.height;
+
+    // 3. Validate that the new center position is within canvas bounds
+    if (
+      czCenterGame.x >= 0 &&
+      czCenterGame.x <= GW &&
+      czCenterGame.y >= 0 &&
+      czCenterGame.y <= GH
+    ) {
+      // 4. Set the new capzone with *new position* but *old dimensions*
+      capZoneGame = {
+        x: czCenterGame.x - czWidthGame / 2, // new top-left x
+        y: czCenterGame.y - czHeightGame / 2, // new top-left y
+      };
+    } else {
+      console.warn(
+        "Pasted cap zone center is outside canvas bounds. Ignoring.",
+      );
+      // capZoneGame remains the default from State
+    }
   }
 
   const mapSize = data.mapSize ?? State.get("mapSize");

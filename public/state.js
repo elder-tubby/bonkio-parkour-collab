@@ -53,6 +53,7 @@ class State {
       isNotificationSoundOn: true,
       mapSize: 9,
       generatedPath: null,
+      isDrawingPath: false, // <-- ADD THIS
     };
     this.emitter = new Emitter();
   }

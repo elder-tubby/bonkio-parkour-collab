@@ -20,7 +20,18 @@ class Canvas {
   static draw() {
     const { canvas, ctx } = UI.elems;
     const colors = State.get("colors"); // Get current colors
-    ctx.fillStyle = colors.background;
+
+    // --- NEW: Visual feedback for path drawing ---
+    const isDrawingPath = State.get("isDrawingPath");
+    if (isDrawingPath) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Darken background slightly
+      canvas.style.cursor = "crosshair";
+    } else {
+      ctx.fillStyle = colors.background;
+      canvas.style.cursor = "default";
+    }
+    
+    // ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.lineWidth = 4.452;
@@ -61,9 +72,11 @@ class Canvas {
         ctx.closePath();
         ctx.fill();
 
-        ctx.strokeStyle = isSelected ? "yellow" : "white";
-        ctx.lineWidth = isSelected ? 3 : 1;
-        ctx.stroke();
+        if (isSelected) {
+          ctx.strokeStyle = "yellow";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
         ctx.restore();
 
         if (symbol && !State.get("hideUsernames")) {
@@ -90,9 +103,11 @@ class Canvas {
         ctx.arc(c.x, c.y, radius, 0, 2 * Math.PI);
         ctx.fill();
 
-        ctx.strokeStyle = isSelected ? "yellow" : "white";
-        ctx.lineWidth = isSelected ? 3 : 1;
-        ctx.stroke();
+        if (isSelected) {
+          ctx.strokeStyle = "yellow";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
         ctx.restore();
 
         if (symbol && !State.get("hideUsernames")) {
@@ -280,7 +295,6 @@ class Canvas {
       ctx.restore();
     }
     // --- end dotted path ---
-
     // --- Draw new shape in progress ---
     const drawingShape = State.get("drawingShape");
     if (drawingShape) {

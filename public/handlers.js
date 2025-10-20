@@ -18,6 +18,7 @@ import {
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { splitConcaveIntoConvex } from "./splitConvex.js";
 import { generate as generateMap } from "./auto-generator.js";
+import { startPathDrawing } from "./auto-generator-path.js"; // <-- CHANGE THIS
 import { showToast } from "./utils-client.js";
 
 // --- State Flags for Mouse Actions ---
@@ -72,7 +73,9 @@ function localVerticesFromAbsolute(absVerts, center, angleDeg, scale) {
 
 function handleCanvasDown(e) {
   if (e.button !== 0 || e.target !== UI.elems.canvas) return;
-
+  if (State.get("isDrawingPath")) {
+    return;
+  }
   const point = pointFromEventOnCanvas(e);
   State.set("mouse", point);
   mouseMovedSinceDown = false;
@@ -986,6 +989,9 @@ const createReorderHandler = (toBack) => () => {
     Network.reorderObjects({ ids: selectedIds, toBack });
   }
 };
+
+// public/handlers.js
+
 function createSliderHandlerFactory(elems) {
   return (propName, type) => {
     // Generic approach: build keys from type and propName
@@ -1002,8 +1008,15 @@ function createSliderHandlerFactory(elems) {
       return;
     }
 
+    // handleInput: Only updates the visual text value
     const handleInput = () => {
       if (valueLabel) valueLabel.innerText = slider.value;
+    };
+
+    // handleChange: Fires on mouseup, sends the final network request
+    const handleChange = () => {
+      if (valueLabel) valueLabel.innerText = slider.value; // Ensure final value is set
+
       const selectedIds = State.get("selectedObjectIds");
       if (selectedIds.length === 0) return;
 
@@ -1014,14 +1027,18 @@ function createSliderHandlerFactory(elems) {
 
       const payload = {};
       payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
+
+      // Send one update for each selected object
       selectedIds.forEach((id) => {
         Network.updateObject({ id, ...payload });
       });
     };
 
-    slider.addEventListener("input", handleInput);
+    slider.addEventListener("input", handleInput); // Updates label on drag
+    slider.addEventListener("change", handleChange); // Sends network request on mouseup
   };
-}
+}0
+
 export function bindUIEvents() {
   const e = UI.elems;
 
@@ -1186,24 +1203,48 @@ export function bindUIEvents() {
       showToast("Clear the map before auto-generating!", true);
       return;
     }
-
+    // --- NEW: Clear any old path ---
+    State.set("generatedPath", null);
     // 2. Get validated options from UI
     const options = UI.getGenerationOptions();
 
     // 3. Run generation
-    const newPolygons = generateMap(options);
+    // const newPolygons = generateMap(options);
+    // 3. Store options globally temporarily (needed by finishPathDrawing)
+    window._tempGenOptions = options;
 
-    // 4. Send to server and give feedback
-    if (newPolygons && newPolygons.length > 0) {
-      Network.createObjectsBatch({
-        objects: newPolygons,
-        isAutoGeneration: true,
+    // 4. Close popup and start path drawing
+    UI.hide("autoGeneratePopup");
+    startPathDrawing(options)
+      .then((newPolygons) => {
+        // 5. This runs *after* path is drawn successfully
+        if (newPolygons && newPolygons.length > 0) {
+          Network.createObjectsBatch({
+            objects: newPolygons,
+            isAutoGeneration: true, // Keep this true for now
+          });
+          showToast(`Generated ${newPolygons.length} new polygons!`);
+          // Path remains visible until user draws something else
+        } else {
+          // Path drawing succeeded but polygon generation failed
+          showToast("Polygon generation failed.", true);
+          State.set("generatedPath", null); // Clear path on fail
+        }
+      })
+      .catch((err) => {
+        // 6. This runs if path drawing is cancelled or fails
+        console.error("Path drawing failed:", err);
+        showToast(err.message || "Path drawing cancelled.", true);
+        State.set("generatedPath", null); // Clear path on fail/cancel
+      })
+      .finally(() => {
+         // 7. Clean up temporary options regardless of outcome
+         delete window._tempGenOptions;
+         // Ensure correct status if drawing was cancelled before generation
+         if (!State.get("isDrawingPath") && !State.get("generatedPath")) {
+             UI.setStatus("Click or drag on canvas to draw."); // Reset status
+         }
       });
-      showToast(`Generated ${newPolygons.length} new polygons!`);
-      UI.hide("autoGeneratePopup"); // Auto-close on success
-    } else {
-      showToast("Map generation failed. Please try again.", true);
-    }
   });
 
   safeAddEvent(e.chatAudioBtn, "click", () => {

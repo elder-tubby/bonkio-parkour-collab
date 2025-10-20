@@ -1,4 +1,4 @@
-import { normalizeAngle } from "./utils-client.js";
+import { normalizeAngle, getLineProps } from "./utils-client.js"; // <-- MODIFIED
 import State from "./state.js";
 
 // Keep selectors for DOM querying
@@ -308,12 +308,10 @@ class UI {
   }
 
   updateLineEditorValues(line) {
-    const w = Math.round(
-      line.width ??
-        Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y),
-    );
-    const h = Math.round(line.height ?? 4);
-    const a = Math.round(line.angle ?? 0);
+    const { width, height, angle } = getLineProps(line);
+    const w = Math.round(width);
+    const h = Math.round(height);
+    const a = Math.round(angle);
     this._updateSlider("lineWidth", w);
     this._updateSlider("lineHeight", h);
     this._updateSlider("lineAngle", normalizeAngle(a));
@@ -491,7 +489,7 @@ class UI {
       minDistance: safeNum(this.elems.agpMinDistance, 0, 200, 10),
       maxVertices: safeNum(this.elems.agpMaxVertices, 3, 30, 12),
       minArea: minArea,
-      maxArea: maxArea,  
+      maxArea: maxArea,
       typeWeights: typeWeights,
     };
   }
