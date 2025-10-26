@@ -25,10 +25,10 @@ class Canvas {
     const isDrawingPath = State.get("isDrawingPath");
     if (isDrawingPath) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Darken background slightly
-      canvas.style.cursor = "crosshair";
+      canvas.style.cursor = "move";
     } else {
       ctx.fillStyle = colors.background;
-      canvas.style.cursor = "default";
+      canvas.style.cursor = "crosshair";
     }
     
     // ctx.fillStyle = colors.background;

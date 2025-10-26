@@ -1,5 +1,6 @@
 import { normalizeAngle, getLineProps } from "./utils-client.js"; // <-- MODIFIED
 import State from "./state.js";
+import { AUTO_GEN_LIMITS } from "./config-client.js";
 
 // Keep selectors for DOM querying
 const SELECTORS = {
@@ -38,6 +39,7 @@ const SELECTORS = {
   agpWeightNone: "#agpWeightNone",
   agpWeightBouncy: "#agpWeightBouncy",
   agpWeightDeath: "#agpWeightDeath",
+  agpSkipChance: "#agpSkipChance",
 };
 
 class UI {
@@ -75,7 +77,31 @@ class UI {
     document.body.appendChild(tooltip);
     this.elems.tooltip = tooltip;
 
+    this._setPopupAttributesFromConfig(); // <-- ADD THIS CALL
+
     // this.elems.autoGenerateBtn?.classList.add("hidden");
+  }
+
+  _setPopupAttributesFromConfig() {
+    const L = AUTO_GEN_LIMITS;
+
+    // Helper function to set attributes
+    const setAttrs = (elem, config) => {
+      if (!elem) return;
+      if (config.min !== undefined) elem.min = config.min;
+      if (config.max !== undefined) elem.max = config.max;
+      if (config.default !== undefined) elem.value = config.default;
+      if (config.step !== undefined) elem.step = config.step;
+    };
+
+    // Set attributes for each input field
+    // We can query them here directly since this only runs once
+    setAttrs(this.elems.agpMaxPolygons, L.maxPolygons);
+    setAttrs(this.elems.agpMinDistance, L.minDistance);
+    setAttrs(this.elems.agpMaxVertices, L.maxVertices);
+    setAttrs(this.elems.agpMinArea, L.minArea);
+    setAttrs(this.elems.agpMaxArea, L.maxArea);
+    setAttrs(this.elems.agpSkipChance, L.skipChance);
   }
 
   _createUnifiedObjectEditor() {
@@ -456,12 +482,30 @@ class UI {
       if (isNaN(val)) val = defaultVal;
       return Math.max(min, Math.min(max, val));
     };
+    // Helper to safely parse, clamp, and default a float input
+    const safeFloat = (el, min, max, defaultVal) => {
+      let val = parseFloat(el.value);
+      if (isNaN(val)) val = defaultVal;
+      return Math.max(min, Math.min(max, val));
+    };
+
+    const L = AUTO_GEN_LIMITS;
     // Helper for weights (min 0)
     const safeWeight = (el) => Math.max(0, parseInt(el.value, 10) || 0);
 
     // Validate and swap area if min > max
-    let minArea = safeNum(this.elems.agpMinArea, 200, 50000, 8000);
-    let maxArea = safeNum(this.elems.agpMaxArea, 500, 50000, 30000);
+    let minArea = safeNum(
+      this.elems.agpMinArea,
+      L.minArea.min,
+      L.minArea.max,
+      L.minArea.default,
+    );
+    let maxArea = safeNum(
+      this.elems.agpMaxArea,
+      L.maxArea.min,
+      L.maxArea.max,
+      L.maxArea.default,
+    );
     if (minArea > maxArea) {
       [minArea, maxArea] = [maxArea, minArea]; // Swap if inverted
       this._updateSlider("agpMinArea", minArea);
@@ -485,11 +529,32 @@ class UI {
     }
 
     return {
-      maxPolygons: safeNum(this.elems.agpMaxPolygons, 1, 200, 50),
-      minDistance: safeNum(this.elems.agpMinDistance, 0, 200, 10),
-      maxVertices: safeNum(this.elems.agpMaxVertices, 3, 30, 12),
+      maxPolygons: safeNum(
+        this.elems.agpMaxPolygons,
+        L.maxPolygons.min,
+        L.maxPolygons.max,
+        L.maxPolygons.default,
+      ),
+      minDistance: safeNum(
+        this.elems.agpMinDistance,
+        L.minDistance.min,
+        L.minDistance.max,
+        L.minDistance.default,
+      ),
+      maxVertices: safeNum(
+        this.elems.agpMaxVertices,
+        L.maxVertices.min,
+        L.maxVertices.max,
+        L.maxVertices.default,
+      ),
       minArea: minArea,
       maxArea: maxArea,
+      skipChance: safeFloat(
+        this.elems.agpSkipChance,
+        L.skipChance.min,
+        L.skipChance.max,
+        L.skipChance.default,
+      ),
       typeWeights: typeWeights,
     };
   }

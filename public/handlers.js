@@ -14,11 +14,14 @@ import {
   calculatePolygonCenter,
   isObjectInSelectionBox,
   canSelectObject,
+  splitConcaveIntoConvex
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
-import { splitConcaveIntoConvex } from "./splitConvex.js";
-import { generate as generateMap } from "./auto-generator.js";
-import { startPathDrawing } from "./auto-generator-path.js"; // <-- CHANGE THIS
+import { generatePlatformerMap } from "./auto-generator-platformer.js";
+import {
+  startPathDrawing,
+  generateRandomPathAndPolygons,
+} from "./auto-generator-path.js";
 import { showToast } from "./utils-client.js";
 
 // --- State Flags for Mouse Actions ---
@@ -1037,7 +1040,34 @@ function createSliderHandlerFactory(elems) {
     slider.addEventListener("input", handleInput); // Updates label on drag
     slider.addEventListener("change", handleChange); // Sends network request on mouseup
   };
-}0
+}
+
+// NEW HELPER FUNCTION (for step 5)
+function handleGeneratedPolygons(newPolygons) {
+  if (newPolygons && newPolygons.length > 0) {
+    Network.createObjectsBatch({
+      objects: newPolygons,
+      isAutoGeneration: true,
+    });
+    showToast(`Generated ${newPolygons.length} new polygons!`);
+  } else {
+    showToast("Polygon generation failed.", true);
+  }
+
+  // Set path to disappear after 3 seconds
+  setTimeout(() => {
+    State.set("generatedPath", null);
+  }, 3000);
+}
+
+// NEW HELPER FUNCTION (for step 6)
+function resetStatusToDefault() {
+  const drawingMode = State.get("drawingMode") || "line";
+  let statusText = "Draw by dragging on canvas.";
+  if (drawingMode === "poly") statusText = "Click to start drawing a polygon.";
+  if (drawingMode === "circle") statusText = "Click and drag to draw a circle.";
+  UI.setStatus(statusText);
+}
 
 export function bindUIEvents() {
   const e = UI.elems;
@@ -1135,7 +1165,7 @@ export function bindUIEvents() {
 
   safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo());
   safeAddEvent(e.copyLineInfoBtn, "click", () => copyLineInfo());
-  safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
+  // safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
 
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
     const size = parseInt(ev.target.value, 10);
@@ -1176,6 +1206,37 @@ export function bindUIEvents() {
     Network.changeColors();
   });
 
+  safeAddEvent(e.pasteMapBtn, "click", () => {
+    console.log("New Platformer Generator Triggered!");
+
+    // 1. Safety Check
+    if (State.get("objects").length > 0) {
+      showToast("Clear the map before auto-generating!", true);
+      return;
+    }
+
+    // 2. Get options from the popup (this way, minDistance is still used)
+    const options = UI.getGenerationOptions();
+
+    // 3. Run new generator
+    try {
+      const newPolygons = generatePlatformerMap(options);
+
+      if (newPolygons && newPolygons.length > 0) {
+        Network.createObjectsBatch({
+          objects: newPolygons,
+          isAutoGeneration: true,
+        });
+        showToast(`Generated ${newPolygons.length} new polygons!`);
+      } else {
+        showToast("Platformer generation failed.", true);
+      }
+    } catch (err) {
+      console.error("Error during platformer generation:", err);
+      showToast("Generation failed (error in console).", true);
+    }
+  });
+
   // In handlers.js, inside bindUIEvents()
 
   // --- Replace this handler ---
@@ -1197,54 +1258,52 @@ export function bindUIEvents() {
   // Handle the "Generate" button click
   safeAddEvent(e.agpForm, "submit", (ev) => {
     ev.preventDefault();
+    const submitter = ev.submitter; // Get the button that was clicked
 
     // 1. Safety Check
     if (State.get("objects").length > 0) {
       showToast("Clear the map before auto-generating!", true);
       return;
     }
-    // --- NEW: Clear any old path ---
     State.set("generatedPath", null);
+
     // 2. Get validated options from UI
     const options = UI.getGenerationOptions();
 
-    // 3. Run generation
-    // const newPolygons = generateMap(options);
-    // 3. Store options globally temporarily (needed by finishPathDrawing)
+    // 3. Store options globally temporarily
     window._tempGenOptions = options;
 
-    // 4. Close popup and start path drawing
+    // 4. Close popup
     UI.hide("autoGeneratePopup");
-    startPathDrawing(options)
-      .then((newPolygons) => {
-        // 5. This runs *after* path is drawn successfully
-        if (newPolygons && newPolygons.length > 0) {
-          Network.createObjectsBatch({
-            objects: newPolygons,
-            isAutoGeneration: true, // Keep this true for now
-          });
-          showToast(`Generated ${newPolygons.length} new polygons!`);
-          // Path remains visible until user draws something else
-        } else {
-          // Path drawing succeeded but polygon generation failed
-          showToast("Polygon generation failed.", true);
-          State.set("generatedPath", null); // Clear path on fail
-        }
-      })
-      .catch((err) => {
-        // 6. This runs if path drawing is cancelled or fails
-        console.error("Path drawing failed:", err);
-        showToast(err.message || "Path drawing cancelled.", true);
-        State.set("generatedPath", null); // Clear path on fail/cancel
-      })
-      .finally(() => {
-         // 7. Clean up temporary options regardless of outcome
-         delete window._tempGenOptions;
-         // Ensure correct status if drawing was cancelled before generation
-         if (!State.get("isDrawingPath") && !State.get("generatedPath")) {
-             UI.setStatus("Click or drag on canvas to draw."); // Reset status
-         }
-      });
+
+    if (submitter && submitter.id === "agpRandomRouteBtn") {
+      // --- RANDOM ROUTE (Cleaned up) ---
+      window._tempGenOptions = options; // Set options
+
+      // Call the single orchestrator function
+      const newPolygons = generateRandomPathAndPolygons(options);
+
+      handleGeneratedPolygons(newPolygons); // Handle results
+      delete window._tempGenOptions;
+      resetStatusToDefault();
+    } else {
+      // --- CUSTOM ROUTE ---
+      window._tempGenOptions = options; // Set options
+
+      startPathDrawing(options)
+        .then((newPolygons) => {
+          handleGeneratedPolygons(newPolygons);
+        })
+        .catch((err) => {
+          console.error("Path drawing failed:", err);
+          showToast(err.message || "Path drawing cancelled.", true);
+          State.set("generatedPath", null);
+        })
+        .finally(() => {
+          delete window._tempGenOptions;
+          resetStatusToDefault();
+        });
+    }
   });
 
   safeAddEvent(e.chatAudioBtn, "click", () => {
