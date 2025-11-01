@@ -23,6 +23,7 @@ import {
   generateRandomPathAndPolygons,
 } from "./auto-generator-path.js";
 import { showToast } from "./utils-client.js";
+import { runPhysicsTest } from "./ai-generator.js";
 
 // --- State Flags for Mouse Actions ---
 let isDraggingObject = false;
@@ -1206,39 +1207,46 @@ export function bindUIEvents() {
     Network.changeColors();
   });
 
-  safeAddEvent(e.pasteMapBtn, "click", () => {
-    console.log("New Platformer Generator Triggered!");
+  // safeAddEvent(e.pasteMapBtn, "click", () => {
+  //   console.log("New Platformer Generator Triggered!");
 
-    // 1. Safety Check
-    if (State.get("objects").length > 0) {
-      showToast("Clear the map before auto-generating!", true);
-      return;
-    }
+  //   // 1. Safety Check
+  //   if (State.get("objects").length > 0) {
+  //     showToast("Clear the map before auto-generating!", true);
+  //     return;
+  //   }
 
-    // 2. Get options from the popup (this way, minDistance is still used)
-    const options = UI.getGenerationOptions();
+  //   // 2. Get options from the popup (this way, minDistance is still used)
+  //   const options = UI.getGenerationOptions();
 
-    // 3. Run new generator
-    try {
-      const newPolygons = generatePlatformerMap(options);
+  //   // 3. Run new generator
+  //   try {
+  //     const newPolygons = generatePlatformerMap(options);
 
-      if (newPolygons && newPolygons.length > 0) {
-        Network.createObjectsBatch({
-          objects: newPolygons,
-          isAutoGeneration: true,
-        });
-        showToast(`Generated ${newPolygons.length} new polygons!`);
-      } else {
-        showToast("Platformer generation failed.", true);
-      }
-    } catch (err) {
-      console.error("Error during platformer generation:", err);
-      showToast("Generation failed (error in console).", true);
-    }
-  });
+  //     if (newPolygons && newPolygons.length > 0) {
+  //       Network.createObjectsBatch({
+  //         objects: newPolygons,
+  //         isAutoGeneration: true,
+  //       });
+  //       showToast(`Generated ${newPolygons.length} new polygons!`);
+  //     } else {
+  //       showToast("Platformer generation failed.", true);
+  //     }
+  //   } catch (err) {
+  //     console.error("Error during platformer generation:", err);
+  //     showToast("Generation failed (error in console).", true);
+  //   }
+  // });
 
   // In handlers.js, inside bindUIEvents()
 
+  safeAddEvent(e.pasteMapBtn, "click", () => {
+    // This button now runs the physics test.
+    // The original pasteLines function is still in copyPasteLines.js if needed.
+    console.log("Paste Map button clicked, running physics test...");
+    runPhysicsTest(); 
+  });
+  
   // --- Replace this handler ---
   safeAddEvent(e.autoGenerateBtn, "click", () => {
     // Now just shows the popup
