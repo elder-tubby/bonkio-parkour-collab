@@ -8,4 +8,5 @@ export const AUTO_GEN_LIMITS = {
   minArea: { min: 200, max: 50000, default: 8000 },
   maxArea: { min: 300, max: 50000, default: 30000 },
   skipChance: { min: 0, max: 1, default: 0, step: 0.1 },
+  tunnelPadding: { min: 5, max: 100, default: 20 },
 };

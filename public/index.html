@@ -294,7 +294,20 @@
             />
           </div>
 
-          <label class="weights-label">Type Weights (Relative Chance)</label>
+          <div class="popup-form-row">
+            <label for="agpTunnelPadding" title="Padding around the player for the generated tunnel.">
+              Tunnel Padding
+            </label>
+            <input
+              type="number"
+              id="agpTunnelPadding"
+              min="0"
+              max="100"
+              value="15"
+            />
+          </div>
+
+    <label class="weights-label">Type Weights (Relative Chance)</label>
           <div class="weights-row">
             <div>
               <label for="agpWeightNone">None</label>
@@ -310,12 +323,27 @@
             </div>
           </div>
 
-          <div class="popup-actions" style="margin-top: 1rem;">
-            <button id="agpCustomRouteBtn" type="submit" class="btn" name="custom">
-              Custom Route
+          <!-- UPDATED ACTIONS SECTION -->
+          <div class="popup-actions" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 1rem;">
+            <!-- Row 1: Path Generators -->
+            <button id="agpCustomRouteBtn" type="submit" class="btn" name="custom" title="Draw a path manually">
+              Custom Path
             </button>
-            <button id="agpRandomRouteBtn" type="submit" class="btn" name="random">
-              Random Route
+            <button id="agpRandomRouteBtn" type="submit" class="btn" name="random" title="Generate a random path">
+              Random Path
+            </button>
+
+            <!-- Row 2: Shape & AI Generators -->
+            <button id="agpPlatformerBtn" type="button" class="btn" title="Generate random platformer shapes">
+              Random Shapes
+            </button>
+            <button id="agpAiMapBtn" type="button" class="btn" title="Generate map from random simulation">
+              Route-based Shapes
+            </button>
+
+            <!-- Row 3: Simulation -->
+            <button id="agpAiSimBtn" type="button" class="btn" style="grid-column: span 2; background-color: #444;" title="Start user controlled simulation">
+              Toggle Simulation
             </button>
           </div>
         </form>
@@ -324,6 +352,8 @@
     
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/build/decomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/dist/polygon-clipping.umd.min.js"></script>
+    <script src="earcut.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

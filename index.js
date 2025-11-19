@@ -166,7 +166,7 @@ io.on("connection", (socket) => {
   socket.on(EVENTS.CHANGE_COLORS, () => game.handleChangeColors(socket.id));
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on port ${PORT}`);
 });

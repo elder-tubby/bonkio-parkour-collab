@@ -31,15 +31,25 @@ const SELECTORS = {
   agpCloseBtn: "#agpCloseBtn",
   agpForm: "#agpForm",
   agpGenerateBtn: "#agpGenerateBtn",
+
+  // Inputs
   agpMaxPolygons: "#agpMaxPolygons",
   agpMinDistance: "#agpMinDistance",
   agpMaxVertices: "#agpMaxVertices",
   agpMinArea: "#agpMinArea",
   agpMaxArea: "#agpMaxArea",
+  agpSkipChance: "#agpSkipChance",
+  agpTunnelPadding: "#agpTunnelPadding", 
   agpWeightNone: "#agpWeightNone",
   agpWeightBouncy: "#agpWeightBouncy",
   agpWeightDeath: "#agpWeightDeath",
-  agpSkipChance: "#agpSkipChance",
+
+  // Buttons
+  agpCustomRouteBtn: "#agpCustomRouteBtn",
+  agpRandomRouteBtn: "#agpRandomRouteBtn",
+  agpPlatformerBtn: "#agpPlatformerBtn", // New
+  agpAiMapBtn: "#agpAiMapBtn", // New
+  agpAiSimBtn: "#agpAiSimBtn", // New
 };
 
 class UI {
@@ -554,6 +564,12 @@ class UI {
         L.skipChance.min,
         L.skipChance.max,
         L.skipChance.default,
+      ),
+      tunnelPadding: safeNum(
+        this.elems.agpTunnelPadding,
+        L.tunnelPadding.min,
+        L.tunnelPadding.max,
+        L.tunnelPadding.default,
       ),
       typeWeights: typeWeights,
     };

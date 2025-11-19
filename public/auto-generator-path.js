@@ -1,174 +1,40 @@
 // public/auto-generator-path.js
-// Generates a single concave "ribbon" along a path, splits into convex pieces,
-// and assigns types after splitting. Exposes two functions used by handlers.js:
-// - startPathDrawing(options): Promise that resolves when user finishes drawing a path
-// - generateRandomPathAndPolygons(options): synchronous (returns array) which generates
-//   a random path and returns the generated polygons
 
 import {
   splitConcaveIntoConvex,
   calculatePolygonCenter,
-  polygonArea,
+  randomFloat,
+  randomInt,
+  polygonSelfIntersects,
+  computePathLengths,
+  samplePointAndTangent,
+  getRandomType, // Import getRandomType
 } from "./utils-client.js";
 import UI from "./ui.js";
+import State from "./state.js";
 
 // --- CONFIG ---
 const CONFIG = {
+  // ... (CONFIG remains unchanged) ...
   objectCat1: {
     sampleCountRange: [18, 36],
     widthRange: { min: 16, max: 48 },
     stepJitterFactor: 0.45,
     widthJitter: 0.4,
-    // sideSync: 1 => perfectly mirrored (old behavior). 0 => fully independent left/right samples.
     sideSync: 1.0,
     typeWeights: { none: 1, bouncy: 1, death: 1 },
   },
   maxRetries: 4,
 };
 
-// Expose updater so handlers or console can tweak behaviour safely
-function safeDeepMerge(target, patch) {
-  if (!patch || typeof patch !== "object") return target;
-  const stack = [[target, patch]];
-  while (stack.length) {
-    const [t, p] = stack.pop();
-    for (const key of Object.keys(p)) {
-      if (key === "__proto__" || key === "constructor") continue;
-      const pv = p[key];
-      if (pv && typeof pv === "object" && !Array.isArray(pv)) {
-        if (!t[key] || typeof t[key] !== "object" || Array.isArray(t[key]))
-          t[key] = {};
-        stack.push([t[key], pv]);
-      } else {
-        t[key] = pv;
-      }
-    }
-  }
-  return target;
-}
-function updatePathConfig(patch) {
-  if (typeof patch === "function") {
-    try {
-      const res = patch(JSON.parse(JSON.stringify(CONFIG)));
-      if (res && typeof res === "object") safeDeepMerge(CONFIG, res);
-    } catch (e) {
-      console.error(e);
-    }
-  } else if (patch && typeof patch === "object") {
-    safeDeepMerge(CONFIG, patch);
-  }
-  if (typeof window !== "undefined")
-    window.PATH_RIBBON_CONFIG = JSON.parse(JSON.stringify(CONFIG));
-}
-if (typeof window !== "undefined") {
-  window.PATH_RIBBON_CONFIG = JSON.parse(JSON.stringify(CONFIG));
-  window.UPDATE_PATH_RIBBON_CONFIG = updatePathConfig;
-}
+// ---------------- Ribbon construction (Internal Helpers) ----------------
 
-// ---------------- utilities ----------------
-function randomFloat(min, max) {
-  return Math.random() * (max - min) + min;
-}
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function orientation(a, b, c) {
-  const val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
-  if (Math.abs(val) < 1e-9) return 0;
-  return val > 0 ? 1 : 2;
-}
-function onSegment(a, b, c) {
-  return (
-    Math.min(a.x, b.x) - 1e-9 <= c.x &&
-    c.x <= Math.max(a.x, b.x) + 1e-9 &&
-    Math.min(a.y, b.y) - 1e-9 <= c.y &&
-    c.y <= Math.max(a.y, b.y) + 1e-9
-  );
-}
-function segmentsIntersect(p1, p2, q1, q2) {
-  const o1 = orientation(p1, p2, q1);
-  const o2 = orientation(p1, p2, q2);
-  const o3 = orientation(q1, q2, p1);
-  const o4 = orientation(q1, q2, p2);
-  if (o1 !== o2 && o3 !== o4) return true;
-  if (o1 === 0 && onSegment(p1, p2, q1)) return true;
-  if (o2 === 0 && onSegment(p1, p2, q2)) return true;
-  if (o3 === 0 && onSegment(q1, q2, p1)) return true;
-  if (o4 === 0 && onSegment(q1, q2, p2)) return true;
-  return false;
-}
-
-function polygonSelfIntersects(poly) {
-  const n = poly.length;
-  if (n < 4) return false;
-  for (let i = 0; i < n; i++) {
-    const a1 = poly[i];
-    const a2 = poly[(i + 1) % n];
-    for (let j = i + 1; j < n; j++) {
-      if (Math.abs(i - j) <= 1) continue;
-      if (i === 0 && j === n - 1) continue;
-      const b1 = poly[j];
-      const b2 = poly[(j + 1) % n];
-      if (segmentsIntersect(a1, a2, b1, b2)) return true;
-    }
-  }
-  return false;
-}
-
-// ---------------- Path sampling helpers ----------------
-function computePathLengths(path) {
-  const segLengths = [];
-  let total = 0;
-  for (let i = 0; i < path.length - 1; i++) {
-    const dx = path[i + 1].x - path[i].x;
-    const dy = path[i + 1].y - path[i].y;
-    const l = Math.hypot(dx, dy);
-    segLengths.push(l);
-    total += l;
-  }
-  return { segLengths, total };
-}
-function tangentOfSegment(path, idx) {
-  const a = path[Math.max(0, Math.min(idx, path.length - 2))];
-  const b = path[Math.max(1, Math.min(idx + 1, path.length - 1))];
-  const dx = b.x - a.x,
-    dy = b.y - a.y;
-  const len = Math.hypot(dx, dy) || 1;
-  return { x: dx / len, y: dy / len };
-}
-function samplePointAndTangent(path, t, segLengths, totalLength) {
-  if (t <= 0) return { p: path[0], tangent: tangentOfSegment(path, 0) };
-  if (t >= 1)
-    return {
-      p: path[path.length - 1],
-      tangent: tangentOfSegment(path, path.length - 2),
-    };
-  const target = t * totalLength;
-  let acc = 0;
-  for (let i = 0; i < segLengths.length; i++) {
-    const l = segLengths[i];
-    if (acc + l >= target) {
-      const localT = (target - acc) / l;
-      const a = path[i],
-        b = path[i + 1];
-      const px = a.x + (b.x - a.x) * localT;
-      const py = a.y + (b.y - a.y) * localT;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      return { p: { x: px, y: py }, tangent: { x: dx / len, y: dy / len } };
-    }
-    acc += l;
-  }
-  return {
-    p: path[path.length - 1],
-    tangent: tangentOfSegment(path, path.length - 2),
-  };
-}
-
-// ---------------- Ribbon construction ----------------
+/**
+ * Creates the single concave polygon (ribbon) that spans the path.
+ * (This function remains unchanged as a low-level helper.)
+ */
 function buildRibbonPolygonFromPath(path, cfg, canvasWidth, canvasHeight) {
+  // ... (implementation remains unchanged) ...
   const { segLengths, total } = computePathLengths(path);
   if (total <= 0) return null;
 
@@ -219,7 +85,7 @@ function buildRibbonPolygonFromPath(path, cfg, canvasWidth, canvasHeight) {
     );
 
     // sample offsets in [-offsetMax, offsetMax] scaled by (1 - sync). If sync==1 offsets==0
-    const sampleOffset = (scaleValue) => {
+    const sampleOffset = () => {
       if (sync >= 0.999) return centerT; // fully synced
       const rand = randomFloat(-1, 1) * (1 - sync);
       const t = centerT + rand * offsetMax;
@@ -265,7 +131,6 @@ function buildRibbonPolygonFromPath(path, cfg, canvasWidth, canvasHeight) {
     });
   }
 
-  // leftPoints and rightPoints are monotonic along the path because we sampled t within non-overlapping intervals
   const polygon = leftPoints.concat([...rightPoints].reverse());
 
   // ensure in-bounds
@@ -278,10 +143,14 @@ function buildRibbonPolygonFromPath(path, cfg, canvasWidth, canvasHeight) {
   return polygon;
 }
 
-// Split and assign types AFTER splitting
+/**
+ * Splits the concave ribbon and assigns types.
+ * (This function remains unchanged as a low-level helper, updated to use imported getRandomType.)
+ */
 function splitAndAssignTypes(polygon, categoryKey) {
   if (!polygon || polygon.length < 3) return [];
   const cfg = CONFIG[categoryKey] || CONFIG.objectCat1;
+  // Note: getRandomType is assumed to be imported from utils-client.js
   const convex = splitConcaveIntoConvex({ v: polygon.map((p) => [p.x, p.y]) });
   if (!convex || convex.length === 0) return [];
   const out = [];
@@ -297,110 +166,25 @@ function splitAndAssignTypes(polygon, categoryKey) {
   return out;
 }
 
-function getRandomType(weights) {
-  const safe = weights && typeof weights === "object" ? weights : { none: 1 };
-  const entries = Object.entries(safe).filter(
-    ([k, v]) => typeof v === "number" && v >= 0 && k !== "__proto__",
-  );
-  if (entries.length === 0) return "none";
-  const total = entries.reduce((s, [, w]) => s + w, 0);
-  if (total <= 0) return entries[0][0] || "none";
-  let r = randomFloat(0, total);
-  for (const [k, w] of entries) {
-    if (r < w) return k;
-    r -= w;
-  }
-  return entries[entries.length - 1][0];
-}
+// ---------------- Public Functions ----------------
 
-// ---------------- Random path generator (keep existing logic idea) ----------------
 /**
- * Generate a pseudo-random smooth-ish path across the canvas.
- * Options can include:
- * - padding, segments etc.
+ * Generates ribbon polygons from a given path (array of points).
+ * This is the new, centralized core function used by both custom and random path generation.
  */
-function generateRandomPath(canvasWidth, canvasHeight, options = {}) {
-  const padding = options.padding || 40;
-  const segments = options.segments || randomInt(3, 6);
-  const pts = [];
-  const horizontal = Math.random() > 0.5;
-  if (horizontal) {
-    const yMid = randomFloat(padding, canvasHeight - padding);
-    const start = {
-      x: randomFloat(padding, canvasWidth * 0.15),
-      y: yMid + randomFloat(-80, 80),
-    };
-    const end = {
-      x: randomFloat(canvasWidth * 0.85, canvasWidth - padding),
-      y: yMid + randomFloat(-80, 80),
-    };
-    pts.push(start);
-    for (let i = 1; i < segments; i++) {
-      const t = i / segments;
-      pts.push({
-        x: start.x + (end.x - start.x) * t + randomFloat(-120, 120),
-        y: start.y + (end.y - start.y) * t + randomFloat(-120, 120),
-      });
-    }
-    pts.push(end);
-  } else {
-    const xMid = randomFloat(padding, canvasWidth - padding);
-    const start = {
-      x: xMid + randomFloat(-80, 80),
-      y: randomFloat(padding, canvasHeight * 0.15),
-    };
-    const end = {
-      x: xMid + randomFloat(-80, 80),
-      y: randomFloat(canvasHeight * 0.85, canvasHeight - padding),
-    };
-    pts.push(start);
-    for (let i = 1; i < segments; i++) {
-      const t = i / segments;
-      pts.push({
-        x: start.x + (end.x - start.x) * t + randomFloat(-120, 120),
-        y: start.y + (end.y - start.y) * t + randomFloat(-120, 120),
-      });
-    }
-    pts.push(end);
-  }
-  return chaikinSmooth(pts, 2);
-}
-
-function chaikinSmooth(points, iterations = 1) {
-  let res = points.slice();
-  for (let it = 0; it < iterations; it++) {
-    const next = [];
-    next.push(res[0]);
-    for (let i = 0; i < res.length - 1; i++) {
-      const a = res[i],
-        b = res[i + 1];
-      next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
-      next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
-    }
-    next.push(res[res.length - 1]);
-    res = next;
-  }
-  return res;
-}
-
-// ---------------- Public functions required by handlers.js ----------------
-export function generateRandomPathAndPolygons(options = {}) {
+export function generatePolygonsFromPathPoints(path, options = {}) {
   const canvas = UI.elems && UI.elems.canvas;
-  const canvasWidth =
-    options.canvasWidth ||
-    (canvas && canvas.width) ||
-    (typeof window !== "undefined" && window.innerWidth) ||
-    1024;
-  const canvasHeight =
-    options.canvasHeight ||
-    (canvas && canvas.height) ||
-    (typeof window !== "undefined" && window.innerHeight) ||
-    768;
+  const canvasWidth = options.canvasWidth || (canvas && canvas.width) || 1024;
+  const canvasHeight = options.canvasHeight || (canvas && canvas.height) || 768;
   const categoryKey = options.categoryKey || "objectCat1";
 
-  const path = generateRandomPath(canvasWidth, canvasHeight, options);
   let attempt = 0;
-  const cfg = CONFIG[categoryKey] || CONFIG.objectCat1;
+  const baseCfg = CONFIG[categoryKey] || CONFIG.objectCat1;
+  const cfg = {
+    ...baseCfg,
+    widthRange: { ...baseCfg.widthRange },
+  };
+
   while (attempt < CONFIG.maxRetries) {
     const polygon = buildRibbonPolygonFromPath(
       path,
@@ -410,6 +194,7 @@ export function generateRandomPathAndPolygons(options = {}) {
     );
     if (!polygon) {
       attempt++;
+      // Reduce ribbon width on failure
       cfg.widthRange.min *= 0.85;
       cfg.widthRange.max *= 0.85;
       continue;
@@ -420,6 +205,136 @@ export function generateRandomPathAndPolygons(options = {}) {
   return [];
 }
 
+/**
+ * Generates a random path and uses the core logic to convert it to polygons.
+ * This function is now **refactored** to use the centralized helper.
+ */
+export function generateRandomPathAndPolygons(options = {}) {
+  const canvas = UI.elems && UI.elems.canvas;
+  const canvasWidth = options.canvasWidth || (canvas && canvas.width) || 1024;
+  const canvasHeight = options.canvasHeight || (canvas && canvas.height) || 768;
+
+  // Step 1: Generate the Path
+  const path = generateRandomPath(canvasWidth, canvasHeight, options);
+
+  // Step 2: Use the centralized logic to generate polygons from the path
+  const pieces = generatePolygonsFromPathPoints(path, options);
+
+  return pieces;
+}
+
+// ---------------- Path Generation Helpers ----------------
+// ... (generateRandomPath, chaikinSmooth, startPathDrawing implementations remain as provided) ...
+// Note: Removed the getRandomType internal helper since it's now imported and used inside splitAndAssignTypes
+
+// ---------------- Random path generator (keep existing logic idea) ----------------
+
+/**
+
+* Generate a pseudo-random smooth-ish path across the canvas.
+
+* Options can include:
+
+* - padding, segments etc.
+
+*/
+
+function generateRandomPath(canvasWidth, canvasHeight, options = {}) {
+  const padding = options.padding || 40;
+
+  const segments = options.segments || randomInt(3, 6);
+
+  const pts = [];
+
+  const horizontal = Math.random() > 0.5;
+
+  if (horizontal) {
+    const yMid = randomFloat(padding, canvasHeight - padding);
+
+    const start = {
+      x: randomFloat(padding, canvasWidth * 0.15),
+
+      y: yMid + randomFloat(-80, 80),
+    };
+
+    const end = {
+      x: randomFloat(canvasWidth * 0.85, canvasWidth - padding),
+
+      y: yMid + randomFloat(-80, 80),
+    };
+
+    pts.push(start);
+
+    for (let i = 1; i < segments; i++) {
+      const t = i / segments;
+
+      pts.push({
+        x: start.x + (end.x - start.x) * t + randomFloat(-120, 120),
+
+        y: start.y + (end.y - start.y) * t + randomFloat(-120, 120),
+      });
+    }
+
+    pts.push(end);
+  } else {
+    const xMid = randomFloat(padding, canvasWidth - padding);
+
+    const start = {
+      x: xMid + randomFloat(-80, 80),
+
+      y: randomFloat(padding, canvasHeight * 0.15),
+    };
+
+    const end = {
+      x: xMid + randomFloat(-80, 80),
+
+      y: randomFloat(canvasHeight * 0.85, canvasHeight - padding),
+    };
+
+    pts.push(start);
+
+    for (let i = 1; i < segments; i++) {
+      const t = i / segments;
+
+      pts.push({
+        x: start.x + (end.x - start.x) * t + randomFloat(-120, 120),
+
+        y: start.y + (end.y - start.y) * t + randomFloat(-120, 120),
+      });
+    }
+
+    pts.push(end);
+  }
+
+  return chaikinSmooth(pts, 2);
+}
+
+function chaikinSmooth(points, iterations = 1) {
+  let res = points.slice();
+
+  for (let it = 0; it < iterations; it++) {
+    const next = [];
+
+    next.push(res[0]);
+
+    for (let i = 0; i < res.length - 1; i++) {
+      const a = res[i],
+        b = res[i + 1];
+
+      next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+
+      next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+    }
+
+    next.push(res[res.length - 1]);
+
+    res = next;
+  }
+
+  return res;
+}
+
+// ... (startPathDrawing implementation remains as provided) ...
 export function startPathDrawing(options = {}) {
   const canvasElem = UI.elems && UI.elems.canvas;
   if (!canvasElem) return Promise.reject(new Error("Canvas not available"));
@@ -427,6 +342,9 @@ export function startPathDrawing(options = {}) {
   return new Promise((resolve, reject) => {
     const points = [];
     let drawing = false;
+    // ... (rest of implementation remains unchanged) ...
+    State.set("isDrawingPath", true);
+    State.set("generatedPath", []);
 
     function toLocal(evt) {
       const rect = canvasElem.getBoundingClientRect();
@@ -434,64 +352,66 @@ export function startPathDrawing(options = {}) {
     }
 
     function onDown(e) {
+      if (e.button !== 0) return; // Left click only
       drawing = true;
       points.length = 0;
       points.push(toLocal(e));
+
+      // update viz
+      State.set("generatedPath", [...points]);
+
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     }
+
     function onMove(e) {
       if (!drawing) return;
-      points.push(toLocal(e));
+      const pt = toLocal(e);
+
+      // Optional: basic throttle to prevent thousands of points during drag
+      const last = points[points.length - 1];
+      const dist = Math.hypot(pt.x - last.x, pt.y - last.y);
+      if (dist > 5) {
+        points.push(pt);
+        State.set("generatedPath", [...points]); // Dynamic Visual Update
+      }
     }
+
     function onUp(e) {
       if (!drawing) return;
       drawing = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      cleanupListeners();
-      const simplified = simplifyPoints(points, 2);
-      if (simplified.length < 2)
+      cleanup();
+
+      // Simplification Step
+      const simplified = simplifyPoints(points, 5);
+
+      if (simplified.length < 2) {
+        // Reset state on failure
+        State.set("isDrawingPath", false);
+        State.set("generatedPath", null);
         return reject(new Error("Not enough points drawn"));
-
-      const canvasWidth =
-        options.canvasWidth || canvasElem.width || window.innerWidth;
-      const canvasHeight =
-        options.canvasHeight || canvasElem.height || window.innerHeight;
-      const categoryKey = options.categoryKey || "objectCat1";
-
-      const path = chaikinSmooth(simplified, 1);
-      let attempt = 0;
-      const cfg = CONFIG[categoryKey] || CONFIG.objectCat1;
-      while (attempt < CONFIG.maxRetries) {
-        const polygon = buildRibbonPolygonFromPath(
-          path,
-          cfg,
-          canvasWidth,
-          canvasHeight,
-        );
-        if (!polygon) {
-          attempt++;
-          cfg.widthRange.min *= 0.85;
-          cfg.widthRange.max *= 0.85;
-          continue;
-        }
-        const pieces = splitAndAssignTypes(polygon, categoryKey);
-        return resolve(pieces);
       }
-      return reject(
-        new Error("Failed to generate a valid ribbon from the drawn path"),
-      );
+
+      const smoothedPath = chaikinSmooth(simplified, 1);
+
+      // Resolve with the PATH, not the Polygons.
+      resolve(smoothedPath);
+
+      // Note: We do NOT clear generatedPath here immediately,
+      // giving the caller a chance to use it or clear it.
+      State.set("isDrawingPath", false);
     }
 
     function onKey(e) {
       if (e.key === "Escape") {
-        cleanupListeners();
+        cleanup();
+        State.set("isDrawingPath", false);
+        State.set("generatedPath", null);
         reject(new Error("Drawing cancelled"));
       }
     }
 
-    function cleanupListeners() {
+    function cleanup() {
       canvasElem.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousemove", onMove);
@@ -511,11 +431,8 @@ export function startPathDrawing(options = {}) {
 
     canvasElem.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
+
     if (UI && UI.showToast)
-      UI.showToast(
-        "Draw a path on canvas; release mouse to finish. Press Esc to cancel.",
-      );
+      UI.showToast("Draw a path! Release to finish. Esc to cancel.");
   });
 }
-
-// default export not used; named exports are expected by handlers

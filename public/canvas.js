@@ -30,7 +30,7 @@ class Canvas {
       ctx.fillStyle = colors.background;
       canvas.style.cursor = "crosshair";
     }
-    
+
     // ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -173,6 +173,25 @@ class Canvas {
       }
     });
 
+    // --- Draw Physics Simulation Preview ---
+    const simPreview = State.get("simulationPreview");
+    if (simPreview) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(simPreview.x, simPreview.y, simPreview.radius, 0, 2 * Math.PI);
+
+      // Draw a pulsing/glowing effect
+      const pulse = Math.abs(Math.sin(Date.now() / 200));
+      ctx.fillStyle = `rgba(0, 255, 255, ${0.3 + pulse * 0.3})`; // Cyan fill
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0, 255, 255, 0.9)"; // Solid cyan border
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
     // Draw vertex handles for selec  ted polygons (use draggingPreview objects if present)
     const selectedIds = State.get("selectedObjectIds") || [];
     const vertexDragState = State.get("vertexDrag");
@@ -269,32 +288,38 @@ class Canvas {
       });
     }
 
-    // --- DOTTED PATH (put near the top of Canvas.draw so it renders under objects) ---
+    // Works for: Auto-Gen (drawing), User Sim (recording), AI Sim (post-run).
     const generatedPath = State.get("generatedPath");
-    if (generatedPath && generatedPath.length > 1) {
+    if (
+      generatedPath &&
+      Array.isArray(generatedPath) &&
+      generatedPath.length > 0
+    ) {
       ctx.save();
-      ctx.setLineDash([6, 6]); // dotted
+      ctx.setLineDash([6, 6]);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "rgba(255,255,255,0.6)"; // visible but subtle
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+
       ctx.beginPath();
       ctx.moveTo(generatedPath[0].x, generatedPath[0].y);
       for (let i = 1; i < generatedPath.length; i++) {
         ctx.lineTo(generatedPath[i].x, generatedPath[i].y);
       }
       ctx.stroke();
-      ctx.restore();
 
-      // optional: small circles for nodes
-      ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      for (let i = 0; i < generatedPath.length; i++) {
-        ctx.beginPath();
-        ctx.arc(generatedPath[i].x, generatedPath[i].y, 2.5, 0, Math.PI * 2);
-        ctx.fill();
+      // Optional: Draw nodes at the recorded points to visualize density
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      // Optimization: Don't draw circles if path is huge
+      if (generatedPath.length < 500) {
+        for (let i = 0; i < generatedPath.length; i++) {
+          ctx.beginPath();
+          ctx.arc(generatedPath[i].x, generatedPath[i].y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       ctx.restore();
     }
-    // --- end dotted path ---
+
     // --- Draw new shape in progress ---
     const drawingShape = State.get("drawingShape");
     if (drawingShape) {

@@ -14,16 +14,19 @@ import {
   calculatePolygonCenter,
   isObjectInSelectionBox,
   canSelectObject,
-  splitConcaveIntoConvex
+  createValidPolygonObject,
+  splitConcaveIntoConvex,
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { generatePlatformerMap } from "./auto-generator-platformer.js";
 import {
   startPathDrawing,
   generateRandomPathAndPolygons,
+  generatePolygonsFromPathPoints,
 } from "./auto-generator-path.js";
 import { showToast } from "./utils-client.js";
-import { runPhysicsTest } from "./ai-generator.js";
+import { startGame } from "./sim-user-controlled.js";
+import { generateParkourMap } from "./sim-auto-generator.js";
 
 // --- State Flags for Mouse Actions ---
 let isDraggingObject = false;
@@ -77,6 +80,7 @@ function localVerticesFromAbsolute(absVerts, center, angleDeg, scale) {
 
 function handleCanvasDown(e) {
   if (e.button !== 0 || e.target !== UI.elems.canvas) return;
+  // Goal 1: Impossible to draw/select if isDrawingPath is true
   if (State.get("isDrawingPath")) {
     return;
   }
@@ -234,15 +238,16 @@ function addPolygonPoint(point) {
     const shapeToSplit = { v: vertices.map((p) => [p.x, p.y]) };
     const convexPolygons = splitConcaveIntoConvex(shapeToSplit);
 
-    const polygonsToSend = convexPolygons.map((convexPoly) => {
-      const absoluteVertices = convexPoly.v.map((p) => ({ x: p[0], y: p[1] }));
-      const center = calculatePolygonCenter(absoluteVertices);
-      const relativeVertices = absoluteVertices.map((p) => ({
-        x: p.x - center.x,
-        y: p.y - center.y,
-      }));
-      return { v: relativeVertices, c: center };
-    });
+    const polygonsToSend = convexPolygons
+      .map((convexPoly) => {
+        const absoluteVertices = convexPoly.v.map((p) => ({
+          x: p[0],
+          y: p[1],
+        }));
+        // Use the new centralized, validating function
+        return createValidPolygonObject(absoluteVertices, "none"); // Assumes "none" type for drawn polys
+      })
+      .filter(Boolean); // .filter(Boolean) removes any 'null' results
     Network.createObjectsBatch({
       objects: polygonsToSend,
       isAutoGeneration: false,
@@ -517,52 +522,56 @@ function handleCanvasUp(e) {
               x: p[0],
               y: p[1],
             }));
-            const newCenter = calculatePolygonCenter(absoluteVertices);
-            const newRelative = localVerticesFromAbsolute(
+
+            // Use new function to validate and get data
+            const validPoly = createValidPolygonObject(
               absoluteVertices,
-              newCenter,
-              previewObj.a || 0,
-              previewObj.scale || 1,
+              null,
+              previewObj,
             );
 
-            // IMPORTANT: update local state first so UI doesn't revert or treat this as an object-move
-            const objs = State.get("objects") || [];
-            const updatedObjs = objs.map((o) =>
-              o.id === objectId ? { ...o, v: newRelative, c: newCenter } : o,
-            );
-            State.set("objects", updatedObjs);
+            if (validPoly) {
+              // IMPORTANT: update local state first
+              const objs = State.get("objects") || [];
+              const updatedObjs = objs.map((o) =>
+                o.id === objectId
+                  ? { ...o, v: validPoly.v, c: validPoly.c }
+                  : o,
+              );
+              State.set("objects", updatedObjs);
 
-            // then broadcast the canonical change to the server
-            Network.updateObject({
-              id: objectId,
-              v: newRelative,
-              c: newCenter,
-            });
+              // then broadcast the canonical change to the server
+              Network.updateObject({
+                id: objectId,
+                v: validPoly.v,
+                c: validPoly.c,
+              });
+            } else {
+              // Polygon became degenerate, delete it
+              Network.deleteObject(objectId);
+            }
           } else {
             // Multiple convex polygons -> create new objects, remove original
-            const polygonsToSend = convexPolygons.map((convexPoly) => {
-              const absoluteVertices = convexPoly.v.map((p) => ({
-                x: p[0],
-                y: p[1],
-              }));
-              const center = calculatePolygonCenter(absoluteVertices);
-              const relativeVertices = absoluteVertices.map((p) => ({
-                x: p.x - center.x,
-                y: p.y - center.y,
-              }));
-              // --- FIX: Inherit properties from the original object ---
-              return {
-                v: relativeVertices,
-                c: center,
-                a: originalObject.a || 0,
-                scale: originalObject.scale || 1,
-                polyType: originalObject.polyType || "none",
-              };
-            });
+            const polygonsToSend = convexPolygons
+              .map((convexPoly) => {
+                const absoluteVertices = convexPoly.v.map((p) => ({
+                  x: p[0],
+                  y: p[1],
+                }));
+                // Use new function to validate and inherit props (a, scale, polyType)
+                return createValidPolygonObject(
+                  absoluteVertices,
+                  originalObject.polyType,
+                  originalObject,
+                );
+              })
+              .filter(Boolean); // .filter(Boolean) removes any 'null' results
 
             // Create the new polygons first, then delete the old
             Network.deleteObject(objectId);
-            Network.createObjectsBatch({ objects: polygonsToSend });
+            if (polygonsToSend.length > 0) {
+              Network.createObjectsBatch({ objects: polygonsToSend });
+            }
           }
         }
       }
@@ -1166,7 +1175,7 @@ export function bindUIEvents() {
 
   safeAddEvent(e.copyMapBtn, "click", () => copyLineInfo());
   safeAddEvent(e.copyLineInfoBtn, "click", () => copyLineInfo());
-  // safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
+  safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
 
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
     const size = parseInt(ev.target.value, 10);
@@ -1207,113 +1216,102 @@ export function bindUIEvents() {
     Network.changeColors();
   });
 
-  // safeAddEvent(e.pasteMapBtn, "click", () => {
-  //   console.log("New Platformer Generator Triggered!");
-
-  //   // 1. Safety Check
-  //   if (State.get("objects").length > 0) {
-  //     showToast("Clear the map before auto-generating!", true);
-  //     return;
-  //   }
-
-  //   // 2. Get options from the popup (this way, minDistance is still used)
-  //   const options = UI.getGenerationOptions();
-
-  //   // 3. Run new generator
-  //   try {
-  //     const newPolygons = generatePlatformerMap(options);
-
-  //     if (newPolygons && newPolygons.length > 0) {
-  //       Network.createObjectsBatch({
-  //         objects: newPolygons,
-  //         isAutoGeneration: true,
-  //       });
-  //       showToast(`Generated ${newPolygons.length} new polygons!`);
-  //     } else {
-  //       showToast("Platformer generation failed.", true);
-  //     }
-  //   } catch (err) {
-  //     console.error("Error during platformer generation:", err);
-  //     showToast("Generation failed (error in console).", true);
-  //   }
-  // });
-
-  // In handlers.js, inside bindUIEvents()
-
-  safeAddEvent(e.pasteMapBtn, "click", () => {
-    // This button now runs the physics test.
-    // The original pasteLines function is still in copyPasteLines.js if needed.
-    console.log("Paste Map button clicked, running physics test...");
-    runPhysicsTest(); 
-  });
-  
   // --- Replace this handler ---
   safeAddEvent(e.autoGenerateBtn, "click", () => {
     // Now just shows the popup
     UI.show("autoGeneratePopup");
   });
 
-  // --- Add these new handlers ---
+  // --- AUTO GENERATE POPUP HANDLERS ---
+
   safeAddEvent(e.agpCloseBtn, "click", () => UI.hide("autoGeneratePopup"));
 
-  // Close popup if user clicks outside the content box
+  // Close popup if user clicks outside
   safeAddEvent(e.autoGeneratePopup, "click", (ev) => {
     if (ev.target === e.autoGeneratePopup) {
       UI.hide("autoGeneratePopup");
     }
   });
 
-  // Handle the "Generate" button click
-  safeAddEvent(e.agpForm, "submit", (ev) => {
-    ev.preventDefault();
-    const submitter = ev.submitter; // Get the button that was clicked
-
-    // 1. Safety Check
+  // 3.3 NEW: Generate Random Shapes (Platformer)
+  safeAddEvent(e.agpPlatformerBtn, "click", () => {
     if (State.get("objects").length > 0) {
       showToast("Clear the map before auto-generating!", true);
       return;
     }
-    State.set("generatedPath", null);
-
-    // 2. Get validated options from UI
     const options = UI.getGenerationOptions();
-
-    // 3. Store options globally temporarily
-    window._tempGenOptions = options;
-
-    // 4. Close popup
-    UI.hide("autoGeneratePopup");
-
-    if (submitter && submitter.id === "agpRandomRouteBtn") {
-      // --- RANDOM ROUTE (Cleaned up) ---
-      window._tempGenOptions = options; // Set options
-
-      // Call the single orchestrator function
-      const newPolygons = generateRandomPathAndPolygons(options);
-
-      handleGeneratedPolygons(newPolygons); // Handle results
-      delete window._tempGenOptions;
-      resetStatusToDefault();
-    } else {
-      // --- CUSTOM ROUTE ---
-      window._tempGenOptions = options; // Set options
-
-      startPathDrawing(options)
-        .then((newPolygons) => {
-          handleGeneratedPolygons(newPolygons);
-        })
-        .catch((err) => {
-          console.error("Path drawing failed:", err);
-          showToast(err.message || "Path drawing cancelled.", true);
-          State.set("generatedPath", null);
-        })
-        .finally(() => {
-          delete window._tempGenOptions;
-          resetStatusToDefault();
-        });
+    try {
+      const newPolygons = generatePlatformerMap(options);
+      handleGeneratedPolygons(newPolygons);
+      UI.hide("autoGeneratePopup");
+    } catch (err) {
+      console.error("Platformer generation error:", err);
+      showToast("Generation failed.", true);
     }
   });
 
+  // 3.2 NEW: Generate map from random simulation (AI Map)
+  safeAddEvent(e.agpAiMapBtn, "click", () => {
+    console.log("Starting AI Map Generation...");
+    const options = UI.getGenerationOptions();
+    UI.hide("autoGeneratePopup");
+    generateParkourMap(options);
+  });
+
+  // 3.1 NEW: Start user controlled-simulation (AI Sim)
+  safeAddEvent(e.agpAiSimBtn, "click", () => {
+    console.log("Starting AI Simulation...");
+    const options = UI.getGenerationOptions();
+    UI.hide("autoGeneratePopup");
+    startGame(options);
+  });
+
+
+  // Replace the entire form submit handler with this:
+    safeAddEvent(e.agpForm, "submit", (ev) => {
+      ev.preventDefault();
+      const submitter = ev.submitter;
+
+      if (State.get("objects").length > 0) {
+        showToast("Clear the map before auto-generating!", true);
+        return;
+      }
+      State.set("generatedPath", null);
+      const options = UI.getGenerationOptions();
+      window._tempGenOptions = options;
+      UI.hide("autoGeneratePopup");
+
+      if (submitter && submitter.id === "agpRandomRouteBtn") {
+        // Random Path (Path generated internally, polygons returned)
+        const newPolygons = generateRandomPathAndPolygons(options);
+        handleGeneratedPolygons(newPolygons);
+        delete window._tempGenOptions;
+        resetStatusToDefault();
+      } else {
+        // Custom Path (User Draw)
+        startPathDrawing(options)
+          .then((pathPoints) => { // Now receives the raw path points
+            // 1. Generate Ribbon Polygons from the drawn path points
+            const newPolygons = generatePolygonsFromPathPoints(pathPoints, options);
+
+            // 2. Handle the results
+            handleGeneratedPolygons(newPolygons);
+
+            // 3. Clear the path visual (startPathDrawing leaves it up)
+            State.set("generatedPath", null);
+          })
+          .catch((err) => {
+            console.error("Path drawing failed:", err);
+            showToast(err.message || "Path drawing cancelled.", true);
+            State.set("generatedPath", null); // Clear visual path on error/cancel
+          })
+          .finally(() => {
+            delete window._tempGenOptions;
+            resetStatusToDefault();
+          });
+      }
+    });
+  
   safeAddEvent(e.chatAudioBtn, "click", () => {
     const isSoundOn = !State.get("isNotificationSoundOn");
     State.set("isNotificationSoundOn", isSoundOn);

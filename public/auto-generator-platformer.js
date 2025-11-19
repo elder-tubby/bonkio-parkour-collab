@@ -24,20 +24,20 @@ const CONFIG = {
   objectCat1: {
     countRange: [2, 4],
     minVertices: 3,
-    maxVertices: 6,
-    minArea: 30000,
-    maxArea: 80000,
+    maxVertices: 10,
+    minArea: 1000,
+    maxArea: 5000,
     typeWeights: { none: 1, bouncy: 1, death: 1 },
     // New: Placement zone [minY, maxY] as fractions of canvas height
     placementZone: [0.7, 1.0], 
   },
   // Object Category 2 (was "platforms")
-  objectCat2: {
+  objectCat2: {  
     countRange: [5, 10],
     minVertices: 3,
-    maxVertices: 6,
-    minArea: 5000,
-    maxArea: 20000,
+    maxVertices: 10,
+    minArea: 1000,
+    maxArea: 5000,
     typeWeights: { none: 1, bouncy: 1, death: 1 },
     placementZone: [0.4, 0.7],
   },
@@ -45,9 +45,9 @@ const CONFIG = {
   objectCat3: {
     countRange: [8, 15],
     minVertices: 3,
-    maxVertices: 6,
+    maxVertices: 10,
     minArea: 1000,
-    maxArea: 7500,
+    maxArea: 5000,
     typeWeights: { none: 1, bouncy: 1, death: 1 },
     placementZone: [0.1, 0.4],
   },

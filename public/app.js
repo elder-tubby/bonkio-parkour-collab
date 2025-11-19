@@ -9,6 +9,8 @@ import AdminUI from "./admin.js"; // Add this
 import { bindUIEvents } from "./handlers.js";
 import { showToast, getSpawnDiameter } from "./utils-client.js";
 
+window.State = State;
+
 function main() {
   UI.init();
   AdminUI.init(); // Add this
@@ -301,6 +303,9 @@ function watchStateChanges() {
       "hideUsernames",
       "selectionBox",
       "colors",
+      "simulationPreview", // <-- ADD THIS
+      "generatedPath", // <--- CRITICAL: Adds real-time path drawing support
+      "isDrawingPath", // <--- Adds support for cursor changes during drawing
     ];
     if (visualKeys.includes(key)) scheduleDraw();
 
@@ -320,7 +325,7 @@ function watchStateChanges() {
             diameter: getSpawnDiameter(State.get(key)),
           });
         break;
-      case "colors": 
+      case "colors":
         UI.updateColorIndicators(State.get(key));
         break;
     }
@@ -347,7 +352,7 @@ function initializeGameView(payload = {}) {
   State.set("capZone", payload.capZone);
   State.set("spawnCircle", payload.spawnCircle);
   State.set("mapSize", payload.mapSize ?? 9);
-  State.set("colors", payload.colors); 
+  State.set("colors", payload.colors);
 
   UI.hide("home");
   UI.show("canvasWrap");

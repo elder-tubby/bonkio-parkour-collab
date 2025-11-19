@@ -54,6 +54,7 @@ class State {
       mapSize: 9,
       generatedPath: null,
       isDrawingPath: false, // <-- ADD THIS
+      simulationPreview: null, // <-- ADD THIS
     };
     this.emitter = new Emitter();
   }

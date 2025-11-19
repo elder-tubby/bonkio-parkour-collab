@@ -512,68 +512,479 @@ export function polygonArea(pts) {
 // Throws a clear error if poly-decomp is not present (no fallback).
 
 /**
+
  * Split a single concave polygon-like shape into convex polygon shapes.
+
  * Requires the poly-decomp UMD global to be loaded (decomp or polyDecomp).
+
  *
+
  * Input shape:
- *  { v: [ [x,y], ... ], s?, a?, c? }
+
+ * { v: [ [x,y], ... ], s?, a?, c? }
+
  *
+
  * Output: array of { type:'po', v: [ [x,y], ... ], s, a, c }
+
  */
+
 export function splitConcaveIntoConvex(shape) {
   // detect the poly-decomp global (UMD builds expose `decomp`; some builds expose `polyDecomp`)
-  const pd = window.decomp || window.polyDecomp || window.polyDecompES || window.polyDecompLib;
 
-  if (!pd || (typeof pd.makeCCW !== 'function' && typeof pd.quickDecomp !== 'function' && typeof pd.decomp !== 'function')) {
+  const pd =
+    window.decomp ||
+    window.polyDecomp ||
+    window.polyDecompES ||
+    window.polyDecompLib;
+
+  if (
+    !pd ||
+    (typeof pd.makeCCW !== "function" &&
+      typeof pd.quickDecomp !== "function" &&
+      typeof pd.decomp !== "function")
+  ) {
     throw new Error(
-      'poly-decomp library not found. Include the UMD build before your module script, for example:\n\n' +
-      '<script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.2.1/build/decomp.min.js"></script>\n' +
-      '<script type="module" src="app.js"></script>\n\n' +
-      'Make sure the poly-decomp <script> appears *before* your module script so the global is available when the module executes.'
+      "poly-decomp library not found. Include the UMD build before your module script, for example:\n\n" +
+        '<script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.2.1/build/decomp.min.js"></script>\n' +
+        '<script type="module" src="app.js"></script>\n\n' +
+        "Make sure the poly-decomp <script> appears *before* your module script so the global is available when the module executes.",
     );
   }
 
   // normalize input vertices
-  const inPoly = (shape && Array.isArray(shape.v) ? shape.v.map(p => [Number(p[0]), Number(p[1])]) : []);
+
+  const inPoly =
+    shape && Array.isArray(shape.v)
+      ? shape.v.map((p) => [Number(p[0]), Number(p[1])])
+      : [];
+
   if (inPoly.length < 3) return [];
 
   // prefer makeCCW if available
-  if (typeof pd.makeCCW === 'function') pd.makeCCW(inPoly);
+
+  if (typeof pd.makeCCW === "function") pd.makeCCW(inPoly);
 
   // choose decomposition function that definitely comes from poly-decomp
-  const decompFn = typeof pd.quickDecomp === 'function' ? pd.quickDecomp : pd.decomp;
 
-  if (typeof decompFn !== 'function') {
+  const decompFn =
+    typeof pd.quickDecomp === "function" ? pd.quickDecomp : pd.decomp;
+
+  if (typeof decompFn !== "function") {
     // This should not happen because we checked earlier — fail loudly.
-    throw new Error('poly-decomp is present but does not expose quickDecomp or decomp.');
+
+    throw new Error(
+      "poly-decomp is present but does not expose quickDecomp or decomp.",
+    );
   }
 
   // run decomposition (this is poly-decomp's algorithm)
+
   const convexes = decompFn(inPoly.slice());
 
   // remove collinear points if library exposes that helper
-  if (Array.isArray(convexes) && convexes.length > 0 && typeof pd.removeCollinearPoints === 'function') {
+
+  if (
+    Array.isArray(convexes) &&
+    convexes.length > 0 &&
+    typeof pd.removeCollinearPoints === "function"
+  ) {
     for (let i = 0; i < convexes.length; i++) {
       pd.removeCollinearPoints(convexes[i], 0); // 0 tolerance -> strict removal
     }
   }
 
   // map results into your shape format
-  const out = (convexes || []).map(poly =>
-    ({
-      type: 'po',
-      v: poly.map(p => [Number(p[0]), Number(p[1])]),
-      s: shape.s ?? 1,
-      a: shape.a ?? 0,
-      c: shape.c ?? [0, 0]
-    })
-  );
+
+  const out = (convexes || []).map((poly) => ({
+    type: "po",
+
+    v: poly.map((p) => [Number(p[0]), Number(p[1])]),
+
+    s: shape.s ?? 1,
+
+    a: shape.a ?? 0,
+
+    c: shape.c ?? [0, 0],
+  }));
 
   // console.log(out);
 
   return out;
 }
 
+// ----------------------------------------------------------------
+// --- NEW RDP SIMPLIFICATION (from external app) -----------------
+// ----------------------------------------------------------------
+
+/**
+ * Calculates the perpendicular distance from a point to a line segment.
+ * @param {Array<number>} p - Point [x, y]
+ * @param {Array<number>} a - Line start [x, y]
+ * @param {Array<number>} b - Line end [x, y]
+ * @returns {number}
+ */
+function perpendicularDistance(p, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const lenSq = dx * dx + dy * dy;
+
+  // If the line segment is just a point (start == end)
+  // return the direct distance from p to a.
+  if (lenSq === 0) {
+    const pdx = p[0] - a[0];
+    const pdy = p[1] - a[1];
+    return Math.sqrt(pdx * pdx + pdy * pdy);
+  }
+
+  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq;
+  let closest;
+  if (t < 0) {
+    closest = a;
+  } else if (t > 1) {
+    closest = b;
+  } else {
+    closest = [a[0] + t * dx, a[1] + t * dy];
+  }
+
+  const pdx = p[0] - closest[0];
+  const pdy = p[1] - closest[1];
+  return Math.sqrt(pdx * pdx + pdy * pdy);
+}
+
+/**
+ * Simplifies a polygon using the Ramer-Douglas-Peucker algorithm.
+ * @param {Array<Array<number>>} points - Array of [x, y] points
+ * @param {number} epsilon - Simplification tolerance
+ * @returns {Array<Array<number>>} Simplified array of points
+ */
+export function rdpSimplify(points, epsilon) {
+  const n = points.length;
+  if (n < 3) return points;
+
+  let maxDist = 0;
+  let index = 0;
+  const a = points[0];
+  const b = points[n - 1];
+
+  for (let i = 1; i < n - 1; i++) {
+    const p = points[i];
+    const d = perpendicularDistance(p, a, b);
+    if (d > maxDist) {
+      maxDist = d;
+      index = i;
+    }
+  }
+
+  if (maxDist > epsilon) {
+    // Point is important, recursively simplify
+    const part1 = rdpSimplify(points.slice(0, index + 1), epsilon);
+    const part2 = rdpSimplify(points.slice(index), epsilon);
+    // Combine and remove the duplicated point
+    return part1.slice(0, -1).concat(part2);
+  } else {
+    // All points in between are not important
+    return [a, b];
+  }
+}
+
+// ----------------------------------------------------------------
+// --- NEW EARCUT-BASED SPLITTING FUNCTIONS -----------------------
+// ----------------------------------------------------------------
+
+const EPSILON = 1e-9; // For floating point comparisons
+
+/**
+ * Checks if two points are effectively equal within a small tolerance.
+ * @param {Array<number>} p1 - Point [x, y]
+ * @param {Array<number>} p2 - Point [x, y]
+ * @returns {boolean}
+ */
+function arePointsEqual(p1, p2) {
+  if (!p1 || !p2) return false;
+  return Math.abs(p1[0] - p2[0]) < EPSILON && Math.abs(p1[1] - p2[1]) < EPSILON;
+}
+
+// public/utils-client.js
+// REPLACE these two functions (near line 610)
+
+/**
+ * Calculates the 2D cross product of vectors (b-a) and (c-a).
+ * @param {Array<number>} a - Point [x, y]
+ * @param {Array<number>} b - Point [x, y]
+ * @param {Array<number>} c - Point [x, y]
+ * @returns {number}
+ */
+function crossProduct(a, b, c) {
+  if (!a || !b || !c) return 0; // Safety check
+  return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+/**
+ * Checks if a polygon (array of [x, y] vertices) is convex.
+ * This version correctly handles polygons with a duplicate closing point.
+ * @param {Array<Array<number>>} poly - e.g., [[x1,y1], [x2,y2], ...]
+ * @returns {boolean}
+ */
+function isConvex(poly) {
+  if (!poly || poly.length < 3) return false;
+
+  let n = poly.length; // Start with the full length
+
+  // --- FIX: Check for duplicate closing point ---
+  const first = poly[0];
+  const last = poly[n - 1];
+
+  // Check if first and last points are (nearly) identical
+  if (
+    Math.abs(first[0] - last[0]) < EPSILON &&
+    Math.abs(first[1] - last[1]) < EPSILON
+  ) {
+    // They are duplicates. Reduce n to ignore the last point in calculations.
+    n = n - 1;
+  }
+
+  // If after removing the duplicate we have less than 3 vertices...
+  if (n < 3) return false;
+  // --- END FIX ---
+
+  let firstSign = 0;
+
+  // Loop from i=0 to n-1 (using the *effective* length)
+  for (let i = 0; i < n; i++) {
+    // Use the effective 'n' for all modulo operations
+    const a = poly[i];
+    const b = poly[(i + 1) % n];
+    const c = poly[(i + 2) % n];
+
+    const cp = crossProduct(a, b, c);
+    let sign;
+    if (Math.abs(cp) < EPSILON) {
+      sign = 0; // Treat as collinear
+    } else {
+      sign = Math.sign(cp);
+    }
+
+    if (sign !== 0) {
+      if (firstSign === 0) {
+        firstSign = sign;
+      } else if (sign !== firstSign) {
+        return false; // Signs flipped, concave
+      }
+    }
+  }
+
+  // Final check: if all signs were 0 (a perfect line), it's not convex.
+  if (firstSign === 0) return false;
+
+  return true; // All signs were the same
+}
+
+// public/utils-client.js
+
+// ... (near your other exported geometry functions)
+
+/**
+ * Creates a server-ready polygon object from absolute vertices.
+ * This is the centralized function to ensure all created polygons are valid.
+ * It checks for vertex count, self-intersections, and non-degenerate (non-zero area) polygons.
+ *
+ * @param {Array<{x: number, y: number}>} absoluteVertices - Vertices in world coordinates.
+ * @param {string} polyType - "none", "bouncy", "death", etc.
+ * @param {object} [baseProps={}] - Optional base properties (like a, scale) to inherit.
+ * @returns {object|null} A valid server object, or null if the polygon is degenerate.
+ */
+export function createValidPolygonObject(
+  absoluteVertices,
+  polyType = "none",
+  baseProps = {},
+) {
+  // 1. Check vertex count
+  if (!absoluteVertices || absoluteVertices.length < 3) {
+    return null;
+  }
+
+  // Check for degenerate (zero or near-zero area) polygons.
+  // This prevents 0-area polygons like [A, B, A] from being created.
+  if (polygonArea(absoluteVertices) < 1.0) {
+    return null;
+  }
+  
+  // 2. Check for self-intersections (NEW CHECK)
+  if (polygonSelfIntersects(absoluteVertices)) {
+    console.warn(
+      "[createValidPolygonObject] Skipping self-intersecting polygon.",
+      absoluteVertices,
+    );
+    return null;
+  }
+
+  // 3. Calculate center
+  const c = calculatePolygonCenter(absoluteVertices);
+
+  // 4. Check for degenerate polygon (which results in bad centroid)
+  // This catches 0-area polygons (lines) and invalid calculations.
+  if (!c || !isFinite(c.x) || !isFinite(c.y)) {
+    console.warn(
+      "[createValidPolygonObject] Skipping degenerate polygon with invalid centroid.",
+      absoluteVertices,
+    );
+    return null;
+  }
+
+  // 5. Calculate relative vertices
+  const v = absoluteVertices.map((p) => ({ x: p.x - c.x, y: p.y - c.y }));
+
+  // 6. Return the valid, formatted object
+  return {
+    type: "poly",
+    c,
+    v,
+    a: baseProps.a || 0,
+    scale: baseProps.scale || 1,
+    polyType: polyType || "none",
+  };
+}
+
+/**
+ * Finds the shared edge between two polygons.
+ * @param {Array<Array<number>>} poly1
+ * @param {Array<Array<number>>} poly2
+ * @returns {object|null} Info about the shared edge or null
+ */
+function findSharedEdge(poly1, poly2) {
+  const n1 = poly1.length;
+  const n2 = poly2.length;
+  for (let i = 0; i < n1; i++) {
+    const p1_a = poly1[i];
+    const p1_b = poly1[(i + 1) % n1];
+    for (let j = 0; j < n2; j++) {
+      const p2_a = poly2[j];
+      const p2_b = poly2[(j + 1) % n2];
+      if (arePointsEqual(p1_a, p2_b) && arePointsEqual(p1_b, p2_a)) {
+        return {
+          poly1_index: i, // Index of A in poly1
+          poly2_index: j, // Index of B in poly2
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Merges two polygons that share an edge.
+ * @param {Array<Array<number>>} poly1
+ * @param {Array<Array<number>>} poly2
+ * @param {object} edgeInfo - From findSharedEdge
+ * @returns {Array<Array<number>>} The new merged polygon
+ */
+function mergePolygons(poly1, poly2, edgeInfo) {
+  const { poly1_index, poly2_index } = edgeInfo;
+  const n1 = poly1.length;
+  const n2 = poly2.length;
+  const i = poly1_index;
+  const j = poly2_index;
+
+  const part1 = poly1.slice(0, i + 1);
+  const part2 = [];
+  let k = (j + 2) % n2;
+  while (k !== (j + 1) % n2) {
+    part2.push(poly2[k]);
+    k = (k + 1) % n2;
+  }
+  const part3 = poly1.slice(i + 2);
+  return part1.concat(part2, part3);
+}
+
+/**
+ * Splits a polygon into triangles using Earcut.
+ * Accepts shape in { v: [ [x,y], ... ] } format.
+ * @param {object} shape - The input shape object
+ * @returns {Array<Array<[number, number]>>} An array of triangles.
+ */
+function splitConcaveIntoConvexX(shape) {
+  if (!shape || !Array.isArray(shape.v) || shape.v.length < 3) {
+    console.error("[splitX] Invalid shape or insufficient vertices.");
+    return [];
+  }
+  // --- FIX: Use window.earcut.default (npm version exports default) ---
+  if (
+    typeof window.earcut === "undefined" ||
+    typeof window.earcut.default !== "function"
+  ) {
+    console.error(
+      "earcut.js is not loaded! Cannot split polygon. (Checked window.earcut.default)",
+    );
+    return [];
+  }
+
+  const originalVertsArray = shape.v;
+  const flatVertices = [];
+  for (const p of originalVertsArray) {
+    flatVertices.push(p[0], p[1]);
+  }
+
+  let indices;
+  try {
+    // --- FIX: Use window.earcut.default (npm version exports default) ---
+    indices = window.earcut.default(flatVertices);
+  } catch (e) {
+    console.error("Earcut failed:", e);
+    return [];
+  }
+
+  const convexPolys = [];
+  for (let i = 0; i < indices.length; i += 3) {
+    const i1 = indices[i];
+    const i2 = indices[i + 1];
+    const i3 = indices[i + 2];
+    const v1 = originalVertsArray[i1];
+    const v2 = originalVertsArray[i2];
+    const v3 = originalVertsArray[i3];
+    if (v1 && v2 && v3) {
+      convexPolys.push([v1, v2, v3]);
+    }
+  }
+  return convexPolys;
+}
+
+/**
+ * Takes a shape, splits it into triangles, then merges them back into larger convex polygons.
+ * @param {object} shape - The input shape object, { v: [ [x,y], ... ] }
+ * @returns {Array<Array<[number, number]>>} An array of merged convex polygons.
+ */
+export function splitAndMergeConvex(shape) {
+  let polygons = splitConcaveIntoConvexX(shape);
+  if (polygons.length === 0) return [];
+
+  let merged = true;
+  while (merged) {
+    merged = false;
+    // Iterate backwards to allow safe removal
+    for (let i = polygons.length - 1; i >= 1; i--) {
+      if (merged) break; // A merge happened, restart outer loop
+      for (let j = i - 1; j >= 0; j--) {
+        const poly1 = polygons[i];
+        const poly2 = polygons[j];
+        const edgeInfo = findSharedEdge(poly1, poly2);
+
+        if (edgeInfo) {
+          const newPoly = mergePolygons(poly1, poly2, edgeInfo);
+          if (newPoly.length < 3) continue;
+
+          if (isConvex(newPoly)) {
+            polygons[j] = newPoly; // Replace poly2 with new merged poly
+            polygons.splice(i, 1); // Remove poly1
+            merged = true;
+            break; // Break inner loop and restart outer
+          }
+        }
+      }
+    }
+  }
+  return polygons;
+}
 
 // ----------------------------------------------------------------
 // --- NEW AUTO-GENERATOR UTILITIES (SHARED) ----------------------
@@ -586,8 +997,8 @@ export const sub = (v1, v2) => v(v1.x - v2.x, v1.y - v2.y);
 export const scale = (v1, s) => v(v1.x * s, v1.y * s);
 export const mag = (v1) => Math.hypot(v1.x, v1.y);
 export const normalize = (v1) => {
-    const m = mag(v1);
-    return m === 0 ? v(0, 0) : scale(v1, 1 / m);
+  const m = mag(v1);
+  return m === 0 ? v(0, 0) : scale(v1, 1 / m);
 };
 export const perp = (v1) => v(-v1.y, v1.x);
 
@@ -606,8 +1017,8 @@ export function randomFloat(min, max) {
 export function getRandomType(weights) {
   const safe = weights && typeof weights === "object" ? weights : { none: 1 };
   // Filter out any inherited or invalid properties
-  const entries = Object.entries(safe).filter(([k, v]) => 
-    typeof v === "number" && v >= 0 && k !== "__proto__"
+  const entries = Object.entries(safe).filter(
+    ([k, v]) => typeof v === "number" && v >= 0 && k !== "__proto__",
   );
 
   if (entries.length === 0) return "none";
@@ -630,8 +1041,12 @@ export function getRandomType(weights) {
  * Calculates the Axis-Aligned Bounding Box (AABB) for a set of vertices.
  */
 export function calculateBoundingBox(vertices) {
-  if (!vertices || vertices.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  if (!vertices || vertices.length === 0)
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   for (const v of vertices) {
     if (v.x < minX) minX = v.x;
     if (v.x > maxX) maxX = v.x;
@@ -660,25 +1075,31 @@ export function isPolygonInCanvas(vertices, canvasWidth, canvasHeight) {
   if (!vertices || vertices.length === 0) return false;
   // Check if at least one vertex is inside
   for (const v of vertices) {
-    if (v.x >= 0 && v.x <= canvasWidth && v.y >= 0 && v.y <= canvasHeight) return true;
+    if (v.x >= 0 && v.x <= canvasWidth && v.y >= 0 && v.y <= canvasHeight)
+      return true;
   }
   // TODO: Add check for polygons completely outside but whose edges cross the canvas
   return false;
 }
 
 // --- Segment Intersection Helpers ---
-function orientation(a, b, c) {
+export function orientation(a, b, c) {
+  if (!a || !b || !c) return 0;
   const val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
   if (Math.abs(val) < 1e-9) return 0;
   return val > 0 ? 1 : 2; // 1 -> clockwise, 2 -> counterclockwise
 }
-function onSegment(a, b, c) {
+export function onSegment(a, b, c) {
+  if (!a || !b || !c) return false;
   return (
-    Math.min(a.x, b.x) - 1e-9 <= c.x && c.x <= Math.max(a.x, b.x) + 1e-9 &&
-    Math.min(a.y, b.y) - 1e-9 <= c.y && c.y <= Math.max(a.y, b.y) + 1e-9
+    Math.min(a.x, b.x) - 1e-9 <= c.x &&
+    c.x <= Math.max(a.x, b.x) + 1e-9 &&
+    Math.min(a.y, b.y) - 1e-9 <= c.y &&
+    c.y <= Math.max(a.y, b.y) + 1e-9
   );
 }
-function segmentsIntersect(p1, p2, q1, q2) {
+export function segmentsIntersect(p1, p2, q1, q2) {
+  if (!p1 || !p2 || !q1 || !q2) return false;
   const o1 = orientation(p1, p2, q1);
   const o2 = orientation(p1, p2, q2);
   const o3 = orientation(q1, q2, p1);
@@ -690,6 +1111,7 @@ function segmentsIntersect(p1, p2, q1, q2) {
   if (o4 === 0 && onSegment(q1, q2, p2)) return true;
   return false;
 }
+
 // --- End Segment Intersection ---
 
 /**
@@ -699,20 +1121,28 @@ function segmentsIntersect(p1, p2, q1, q2) {
  * @returns {Array<{x, y}>|null} Array of local vertices or null on failure.
  */
 export function generateRandomVertices(opts) {
-  const { minVertices = 3, maxVertices = 8, minArea = 1000, maxArea = 10000 } = opts;
+  const {
+    minVertices = 3,
+    maxVertices = 8,
+    minArea = 1000,
+    maxArea = 10000,
+  } = opts;
   const perVertexAttempts = 12;
   const maxPolygonAttempts = 30; // Max attempts to generate one valid polygon
 
   function generateLocalWalk(numVertices, targetArea) {
     const maxTurn = Math.PI * 0.9;
-    const baseline = Math.sqrt(Math.max(1, targetArea) / Math.max(3, numVertices));
+    const baseline = Math.sqrt(
+      Math.max(1, targetArea) / Math.max(3, numVertices),
+    );
     const minStep = Math.max(1, baseline * 0.35);
     const maxStep = Math.max(minStep + 0.1, baseline * 1.8);
 
     for (let globalTry = 0; globalTry < 3; globalTry++) {
       const verts = [{ x: 0, y: 0 }];
       let angle = randomFloat(0, Math.PI * 2);
-      let x = 0, y = 0;
+      let x = 0,
+        y = 0;
 
       let failed = false;
       for (let i = 1; i < numVertices; i++) {
@@ -729,7 +1159,14 @@ export function generateRandomVertices(opts) {
 
           let intersects = false;
           for (let e = 0; e < verts.length - 2; e++) {
-            if (segmentsIntersect(verts[verts.length - 1], candidate, verts[e], verts[e + 1])) {
+            if (
+              segmentsIntersect(
+                verts[verts.length - 1],
+                candidate,
+                verts[e],
+                verts[e + 1],
+              )
+            ) {
               intersects = true;
               break;
             }
@@ -737,9 +1174,16 @@ export function generateRandomVertices(opts) {
           if (intersects) continue;
 
           verts.push(candidate);
-          x = nx; y = ny; angle = newAngle; placed = true; break;
+          x = nx;
+          y = ny;
+          angle = newAngle;
+          placed = true;
+          break;
         }
-        if (!placed) { failed = true; break; }
+        if (!placed) {
+          failed = true;
+          break;
+        }
       }
       if (failed) continue;
 
@@ -747,8 +1191,11 @@ export function generateRandomVertices(opts) {
       if (n >= 3) {
         let closesOK = true;
         for (let e = 1; e < n - 2; e++) {
-          if (segmentsIntersect(verts[n - 1], verts[0], verts[e], verts[e + 1])) {
-            closesOK = false; break;
+          if (
+            segmentsIntersect(verts[n - 1], verts[0], verts[e], verts[e + 1])
+          ) {
+            closesOK = false;
+            break;
           }
         }
         if (!closesOK) continue;
@@ -767,7 +1214,10 @@ export function generateRandomVertices(opts) {
 
     const centroid = calculatePolygonCenter(local);
     if (!centroid) continue;
-    const recentered = local.map((p) => ({ x: p.x - centroid.x, y: p.y - centroid.y }));
+    const recentered = local.map((p) => ({
+      x: p.x - centroid.x,
+      y: p.y - centroid.y,
+    }));
 
     const currentArea = polygonArea(recentered);
     if (!isFinite(currentArea) || Math.abs(currentArea) < 1e-6) continue;
@@ -788,8 +1238,8 @@ export function generateRandomVertices(opts) {
  * @returns {Array<{x, y}>} Array of absolute-position vertices.
  */
 export function translateVertices(localVertices, center) {
-    if (!localVertices || !center) return [];
-    return localVertices.map((p) => ({ x: p.x + center.x, y: p.y + center.y }));
+  if (!localVertices || !center) return [];
+  return localVertices.map((p) => ({ x: p.x + center.x, y: p.y + center.y }));
 }
 
 /**
@@ -803,7 +1253,7 @@ export function splitAndFormatPolygons(vertices, polyType) {
   const shape = { v: vertices.map((p) => [p.x, p.y]) };
 
   // Use the existing utility for splitting
-  const convex = splitConcaveIntoConvex(shape); 
+  const convex = splitConcaveIntoConvex(shape);
   if (!convex || convex.length === 0) return [];
 
   const formatted = convex
@@ -814,7 +1264,7 @@ export function splitAndFormatPolygons(vertices, polyType) {
       if (!c) return null;
       const v = abs.map((p) => ({ x: p.x - c.x, y: p.y - c.y }));
       // Format for createObjectsBatch
-      return { type: "poly", c, v, a: 0, scale: 1, polyType }; 
+      return { type: "poly", c, v, a: 0, scale: 1, polyType };
     })
     .filter(Boolean); // Filter out any nulls from failed calculations
 
@@ -838,18 +1288,28 @@ export function makeConfigEditable(windowVarName, configObj, updateFn) {
             safeDeepMerge(configObj, result);
             console.info(`${windowVarName} updated via function patch.`);
           } else {
-            console.warn(`Function did not return an object. ${windowVarName} not modified.`);
+            console.warn(
+              `Function did not return an object. ${windowVarName} not modified.`,
+            );
           }
         } catch (err) {
-          console.error(`Error applying function patch to ${windowVarName}:`, err);
+          console.error(
+            `Error applying function patch to ${windowVarName}:`,
+            err,
+          );
         }
       } else if (patch && typeof patch === "object") {
         safeDeepMerge(configObj, patch);
         console.info(`${windowVarName} patched.`);
       } else {
-        console.warn(`UPDATE_${windowVarName} expects an object patch or a function returning a patch.`);
+        console.warn(
+          `UPDATE_${windowVarName} expects an object patch or a function returning a patch.`,
+        );
       }
-      console.log(`Current ${windowVarName}:`, JSON.parse(JSON.stringify(configObj)));
+      console.log(
+        `Current ${windowVarName}:`,
+        JSON.parse(JSON.stringify(configObj)),
+      );
     };
   }
 }
@@ -866,8 +1326,18 @@ export function safeDeepMerge(target, patch) {
       if (key === "__proto__" || key === "constructor") continue;
       const pv = p[key];
       // Merge plain objects, replace arrays/other
-      if (pv && typeof pv === "object" && !Array.isArray(pv) && Object.prototype.toString.call(pv) === '[object Object]') {
-        if (!t[key] || typeof t[key] !== "object" || Array.isArray(t[key]) || Object.prototype.toString.call(t[key]) !== '[object Object]') {
+      if (
+        pv &&
+        typeof pv === "object" &&
+        !Array.isArray(pv) &&
+        Object.prototype.toString.call(pv) === "[object Object]"
+      ) {
+        if (
+          !t[key] ||
+          typeof t[key] !== "object" ||
+          Array.isArray(t[key]) ||
+          Object.prototype.toString.call(t[key]) !== "[object Object]"
+        ) {
           t[key] = {};
         }
         stack.push([t[key], pv]);
@@ -878,3 +1348,381 @@ export function safeDeepMerge(target, patch) {
   }
   return target;
 }
+
+// ... (inside utils-client.js, at the end of the SHARED section) ...
+
+/**
+ * Selects a random item from an array.
+ */
+export function randChoice(arr) {
+  if (!arr || arr.length === 0) return undefined;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/**
+ * Calculates segment lengths and total length for a path.
+ * @param {Array<{x, y}>} path
+ * @returns {{segLengths: Array<number>, total: number}}
+ */
+export function computePathLengths(path) {
+  const segLengths = [];
+  let total = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const dx = path[i + 1].x - path[i].x;
+    const dy = path[i + 1].y - path[i].y;
+    const l = Math.hypot(dx, dy);
+    segLengths.push(l);
+    total += l;
+  }
+  return { segLengths, total };
+}
+
+/**
+ * Gets the unit tangent vector for a path segment.
+ * @param {Array<{x, y}>} path
+ * @param {number} idx
+ * @returns {{x: number, y: number}}
+ */
+export function tangentOfSegment(path, idx) {
+  const a = path[Math.max(0, Math.min(idx, path.length - 2))];
+  const b = path[Math.max(1, Math.min(idx + 1, path.length - 1))];
+  const dx = b.x - a.x,
+    dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dx / len, y: dy / len };
+}
+
+/**
+ * Samples a point and its tangent at a normalized (0-1) distance along a path.
+ * @param {Array<{x, y}>} path
+ * @param {number} t - Normalized distance (0 to 1)
+ * @param {Array<number>} segLengths
+ * @param {number} totalLength
+ * @returns {{p: {x, y}, tangent: {x, y}}}
+ */
+export function samplePointAndTangent(path, t, segLengths, totalLength) {
+  if (t <= 0) return { p: { ...path[0] }, tangent: tangentOfSegment(path, 0) };
+  if (t >= 1)
+    return {
+      p: { ...path[path.length - 1] },
+      tangent: tangentOfSegment(path, path.length - 2),
+    };
+  const target = t * totalLength;
+  let acc = 0;
+  for (let i = 0; i < segLengths.length; i++) {
+    const l = segLengths[i];
+    if (acc + l >= target) {
+      const localT = l > 0 ? (target - acc) / l : 0;
+      const a = path[i],
+        b = path[i + 1];
+      const px = a.x + (b.x - a.x) * localT;
+      const py = a.y + (b.y - a.y) * localT;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      return { p: { x: px, y: py }, tangent: { x: dx / len, y: dy / len } };
+    }
+    acc += l;
+  }
+  return {
+    p: { ...path[path.length - 1] },
+    tangent: tangentOfSegment(path, path.length - 2),
+  };
+}
+
+/**
+ * Checks if a simple polygon self-intersects.
+ * Assumes vertices are {x, y} objects.
+ * @param {Array<{x, y}>} poly - Array of vertices
+ * @returns {boolean}
+ */
+export function polygonSelfIntersects(poly) {
+  const n = poly.length;
+  if (n < 4) return false;
+  for (let i = 0; i < n; i++) {
+    const a1 = poly[i];
+    const a2 = poly[(i + 1) % n]; // Edge A
+    // Check against all non-adjacent segments
+    for (let j = i + 1; j < n; j++) {
+      // Skip adjacent segments
+      if (j === (i + 1) % n || (i === 0 && j === n - 1)) {
+        continue;
+      }
+      const b1 = poly[j];
+      const b2 = poly[(j + 1) % n]; // Edge B
+      if (segmentsIntersect(a1, a2, b1, b2)) {
+        console.warn(
+          "Self-intersection detected between edges:",
+          [a1, a2],
+          [b1, b2],
+        );
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// --- ADD THESE FUNCTIONS TO utils-client.js ---
+
+const EPS = 1e-9;
+
+/**
+ * Clamps a value between a min and max.
+ */
+function clamp(v, min, max) {
+  return Math.min(Math.max(v, min), max);
+}
+
+/**
+ * Clamps a point to be within the canvas boundaries.
+ */
+export function clampToCanvasPoint(p, w, h) {
+  if (!p) return { x: 0, y: 0 };
+  return { x: clamp(p.x, 0, w), y: clamp(p.y, 0, h) };
+}
+
+/**
+ * build a per-segment polygon (rectangle + semicircular caps).
+ * returns a closed ring: [ [x,y], ... ]
+ */
+export function buildSegmentBlob(
+  a,
+  b,
+  halfWidth,
+  capSteps = 12,
+  canvasW = Infinity,
+  canvasH = Infinity,
+) {
+  const v = { x: b.x - a.x, y: b.y - a.y };
+  const L = Math.hypot(v.x, v.y);
+
+  // If segment degenerate (point), return a full circle polygon centered at a
+  if (L < 1e-6) {
+    const ring = [];
+    for (let i = 0; i <= capSteps; i++) {
+      const phi = (i / capSteps) * Math.PI * 2;
+      const px = a.x + Math.cos(phi) * halfWidth;
+      const py = a.y + Math.sin(phi) * halfWidth;
+      ring.push([clamp(px, 0, canvasW), clamp(py, 0, canvasH)]);
+    }
+    return dedupeAndCloseRing(ring);
+  }
+
+  const theta = Math.atan2(v.y, v.x);
+  // normal (left side) unit vector
+  const nx = -Math.sin(theta);
+  const ny = Math.cos(theta);
+
+  const leftA = { x: a.x + nx * halfWidth, y: a.y + ny * halfWidth };
+  const leftB = { x: b.x + nx * halfWidth, y: b.y + ny * halfWidth };
+  const rightB = { x: b.x - nx * halfWidth, y: b.y - ny * halfWidth };
+  const rightA = { x: a.x - nx * halfWidth, y: a.y - ny * halfWidth };
+
+  // Arc at B: from (theta + PI/2) down to (theta - PI/2)
+  const arcB = [];
+  for (let i = 0; i <= capSteps; i++) {
+    const t = i / capSteps;
+    const phi = theta + Math.PI / 2 + -1 * t * Math.PI; // from +90 to -90
+    const px = b.x + Math.cos(phi) * halfWidth;
+    const py = b.y + Math.sin(phi) * halfWidth;
+    arcB.push([clamp(px, 0, canvasW), clamp(py, 0, canvasH)]);
+  }
+
+  // Arc at A: from (theta - PI/2) up to (theta + PI/2)
+  const arcA = [];
+  for (let i = 0; i <= capSteps; i++) {
+    const t = i / capSteps;
+    const phi = theta - Math.PI / 2 + t * Math.PI; // from -90 to +90
+    const px = a.x + Math.cos(phi) * halfWidth;
+    const py = a.y + Math.sin(phi) * halfWidth;
+    arcA.push([clamp(px, 0, canvasW), clamp(py, 0, canvasH)]);
+  }
+
+  const ring = [];
+  ring.push([clamp(leftA.x, 0, canvasW), clamp(leftA.y, 0, canvasH)]);
+  ring.push([clamp(leftB.x, 0, canvasW), clamp(leftB.y, 0, canvasH)]);
+  for (const p of arcB) ring.push(p);
+  ring.push([clamp(rightB.x, 0, canvasW), clamp(rightB.y, 0, canvasH)]);
+  ring.push([clamp(rightA.x, 0, canvasW), clamp(rightA.y, 0, canvasH)]);
+  for (const p of arcA) ring.push(p);
+
+  return dedupeAndCloseRing(ring);
+}
+
+/**
+ * Format a polygon ring to polygon-clipping MultiPolygon shape: [ [ ring ] ]
+ */
+export function ringToMultiPolygon(ring) {
+  return [[ring]];
+}
+
+/**
+ * Calculates signed area of a ring.
+ */
+export function signedArea(ring) {
+  if (!ring) return 0;
+  let a = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i],
+      q = ring[(i + 1) % ring.length];
+    if (!p || !q) continue;
+    a += p[0] * q[1] - p[1] * q[0];
+  }
+  return 0.5 * a;
+}
+
+/**
+ * Ensure ring is closed and has no near-duplicate consecutive points
+ */
+export function dedupeAndCloseRing(pts, eps = 0.5) {
+  if (!pts || pts.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (!p) continue;
+    if (
+      out.length === 0 ||
+      Math.hypot(p[0] - out[out.length - 1][0], p[1] - out[out.length - 1][1]) >
+        eps
+    ) {
+      out.push([p[0], p[1]]);
+    }
+  }
+  if (out.length >= 3) {
+    const first = out[0],
+      last = out[out.length - 1];
+    if (Math.abs(first[0] - last[0]) > EPS || Math.abs(first[1] - last[1]) > EPS) {
+      out.push([first[0], first[1]]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Raycast helper used in hole-stitching.
+ */
+export function intersectRayRightWithSegment(hx, hy, a, b) {
+  if (!a || !b) return null;
+  if ((a[1] < hy && b[1] < hy) || (a[1] > hy && b[1] > hy)) return null;
+  const dy = b[1] - a[1];
+  if (Math.abs(dy) < 1e-9) return null;
+  const t = (hy - a[1]) / dy;
+  if (t < 0 || t > 1) return null;
+  const ix = a[0] + t * (b[0] - a[0]);
+  if (ix <= hx + 1e-9) return null;
+  return ix;
+}
+
+/**
+ * Stitches a hole into an outer polygon ring.
+ */
+export function stitchHoleIntoOuter(outer, hole) {
+  const out = outer.slice(
+    0,
+    outer[outer.length - 1][0] === outer[0][0] &&
+      outer[outer.length - 1][1] === outer[0][1]
+      ? -1
+      : outer.length,
+  );
+  const hl = hole.slice(
+    0,
+    hole[hole.length - 1][0] === hole[0][0] &&
+      hole[hole.length - 1][1] === hole[0][1]
+      ? -1
+      : hole.length,
+  );
+
+  // rightmost point of hole
+  let hi = 0;
+  for (let i = 1; i < hl.length; i++) {
+    if (
+      hl[i][0] > hl[hi][0] ||
+      (Math.abs(hl[i][0] - hl[hi][0]) < 1e-9 && hl[i][1] < hl[hi][1])
+    )
+      hi = i;
+  }
+  const hv = hl[hi];
+
+  let best = null;
+  for (let j = 0; j < out.length; j++) {
+    const a = out[j];
+    const b = out[(j + 1) % out.length];
+    const ix = intersectRayRightWithSegment(hv[0], hv[1], a, b);
+    if (ix !== null) {
+      const dx = b[0] - a[0],
+        dy = b[1] - a[1];
+      const t =
+        Math.abs(dx) > Math.abs(dy)
+          ? (ix - a[0]) / (dx || 1)
+          : (hv[1] - a[1]) / (dy || 1);
+      const dist = ix - hv[0];
+      if (dist > 0 && (!best || dist < best.dist)) {
+        best = { edgeIndex: j, px: a[0] + t * dx, py: a[1] + t * dy, dist };
+      }
+    }
+  }
+
+  if (!best) {
+    // fallback: connect to nearest vertex
+    let nearestIdx = 0,
+      bestD = Infinity;
+    for (let j = 0; j < out.length; j++) {
+      const d = Math.hypot(out[j][0] - hv[0], out[j][1] - hv[1]);
+      if (d < bestD) {
+        bestD = d;
+        nearestIdx = j;
+      }
+    }
+    const part1 = out.slice(0, nearestIdx + 1);
+    const part2 = out.slice(nearestIdx + 1);
+    const holeSeq = hl.slice(hi).concat(hl.slice(0, hi + 1));
+    return part1.concat(holeSeq, part2, [part1[0]]);
+  }
+
+  const j = best.edgeIndex;
+  const interPt = [best.px, best.py];
+  const newOuter = [];
+  for (let k = 0; k <= j; k++) newOuter.push(out[k]);
+  newOuter.push(interPt);
+  for (let k = j + 1; k < out.length; k++) newOuter.push(out[k]);
+
+  const outerInsertIdx = j + 1;
+  const prefix = newOuter.slice(0, outerInsertIdx + 1);
+  const suffix = newOuter.slice(outerInsertIdx);
+  const holeTraversal = hl.slice(hi).concat(hl.slice(0, hi + 1));
+
+  const stitched = prefix.concat(holeTraversal, suffix, [prefix[0]]);
+
+  return stitched;
+}
+
+
+export const areaOfRing = (ring) => Math.abs(signedArea(ring));
+
+export const dedupeRing = (ring, eps = EPS_DEDUPE) => {
+
+  if (!ring || ring.length < 3) return ring;
+
+  const out = [ring[0]];
+
+  for (let i = 1; i < ring.length; i++) {
+
+    const a = ring[i], b = out[out.length - 1];
+
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) > eps) out.push(a);
+
+  }
+
+  if (out.length >= 3) {
+
+    const f = out[0], l = out[out.length - 1];
+
+    if (Math.abs(f[0] - l[0]) > EPS || Math.abs(f[1] - l[1]) > EPS) out.push([f[0], f[1]]);
+
+  }
+
+  return out;
+
+};
+
