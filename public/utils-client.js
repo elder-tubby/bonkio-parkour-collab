@@ -89,6 +89,114 @@ export function showToast(message, isWarning = false) {
   }, 2000);
 }
 
+// 2. Sleek Interactive Toast
+export function showToastWithButtons(message, buttons = []) {
+  const existingToast = document.getElementById("interactive-toast-container");
+  if (existingToast) existingToast.remove();
+
+  // Container
+  const container = document.createElement("div");
+  container.id = "interactive-toast-container";
+  Object.assign(container.style, {
+    position: "fixed",
+    top: "2rem",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(15, 15, 15, 0.95)", // Very dark grey
+    color: "#eee",
+    padding: "1.2rem 2rem",
+    borderRadius: "4px", // Sharper corners for sleek look
+    zIndex: 2000,
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+    border: "1px solid #333",
+    minWidth: "340px",
+    textAlign: "center",
+    fontFamily: "'Lexend', sans-serif", // Enforce Lexend
+    backdropFilter: "blur(8px)",
+  });
+
+  // Close 'X'
+  const closeBtn = document.createElement("div");
+  closeBtn.textContent = "✕";
+  Object.assign(closeBtn.style, {
+    position: "absolute",
+    top: "8px",
+    right: "10px",
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    color: "#666",
+    fontFamily: "sans-serif",
+  });
+  closeBtn.onmouseenter = () => (closeBtn.style.color = "#fff");
+  closeBtn.onmouseleave = () => (closeBtn.style.color = "#666");
+  closeBtn.onclick = () => container.remove();
+  container.appendChild(closeBtn);
+
+  // Message
+  const msgEl = document.createElement("div");
+  msgEl.textContent = message;
+  msgEl.style.fontWeight = "400";
+  msgEl.style.fontSize = "0.9rem";
+  msgEl.style.letterSpacing = "0.5px";
+  container.appendChild(msgEl);
+
+  // Buttons Row
+  const btnRow = document.createElement("div");
+  Object.assign(btnRow.style, {
+    display: "flex",
+    justifyContent: "center",
+    gap: "12px",
+    flexWrap: "wrap",
+  });
+
+  buttons.forEach((btnDef) => {
+    const btn = document.createElement("button");
+    btn.textContent = btnDef.name;
+
+    // Sleek Minimalistic Style
+    Object.assign(btn.style, {
+      padding: "8px 16px",
+      background: "transparent",
+      border: "1px solid #555",
+      borderRadius: "3px",
+      color: "#ccc",
+      cursor: "pointer",
+      fontSize: "0.7rem",
+      fontFamily: "'Lexend', sans-serif",
+      fontWeight: "500",
+      transition: "all 0.2s ease",
+      letterSpacing: "0.5px",
+      textTransform: "uppercase",
+    });
+
+    // Invert colors on hover
+    btn.onmouseenter = () => {
+      btn.style.background = "#fff";
+      btn.style.color = "#000";
+      btn.style.borderColor = "#fff";
+      btn.style.boxShadow = "0 0 10px rgba(255,255,255,0.2)";
+    };
+    btn.onmouseleave = () => {
+      btn.style.background = "transparent";
+      btn.style.color = "#ccc";
+      btn.style.borderColor = "#555";
+      btn.style.boxShadow = "none";
+    };
+
+    btn.onclick = () => {
+      if (btnDef.onClick) btnDef.onClick();
+      container.remove();
+    };
+    btnRow.appendChild(btn);
+  });
+
+  container.appendChild(btnRow);
+  document.body.appendChild(container);
+}
+
 // Rotates a point around the origin (0,0)
 function rotatePoint(point, angle) {
   const rad = (angle * Math.PI) / 180;
@@ -136,7 +244,8 @@ export function getLineProps(l) {
 }
 
 export function normalizeAngle(angle) {
-  return ((angle % 180) + 180) % 180;
+  // Normalize to 0 - 360
+  return ((angle % 360) + 360) % 360;
 }
 
 export function distance(a, b) {
@@ -350,91 +459,6 @@ export function canSelectObject(objectId) {
   return ownerId === currentPlayerId || !presentIds.has(ownerId);
 }
 
-/**
- * Returns true if the object's *visual* bounding box intersects the selection box.
- * Works for 'poly' and 'line'. Selection box is {x,y,width,height}.
- */
-export function isObjectInSelectionBox(obj, box) {
-  if (!obj || !box) return false;
-
-  // Helper: build axis-aligned bounding box for a polygon's absolute vertices
-  function polyAABB(poly) {
-    const c = poly.c || { x: 0, y: 0 };
-    const v = poly.v || [];
-    const s = poly.scale || 1;
-    const a = poly.a || 0;
-    const rad = (a * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (let i = 0; i < v.length; i++) {
-      const vx = Number(v[i].x ?? v[i][0]);
-      const vy = Number(v[i].y ?? v[i][1]);
-      // apply scale
-      const sx = vx * s;
-      const sy = vy * s;
-      // rotate
-      const rx = sx * cos - sy * sin;
-      const ry = sx * sin + sy * cos;
-      // translate by center
-      const ax = rx + c.x;
-      const ay = ry + c.y;
-      if (ax < minX) minX = ax;
-      if (ay < minY) minY = ay;
-      if (ax > maxX) maxX = ax;
-      if (ay > maxY) maxY = ay;
-    }
-
-    if (minX === Infinity) return { x: c.x, y: c.y, width: 0, height: 0 };
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }
-
-  // Helper: build axis-aligned bounding box for a line (including its height)
-  function lineAABB(line) {
-    const start = line.start || { x: 0, y: 0 };
-    const end = computeEnd(line) || line.end || start;
-    const h = typeof line.height === "number" ? line.height : 4;
-    const halfH = h / 2;
-
-    const minX = Math.min(start.x, end.x);
-    const minY = Math.min(start.y - halfH, end.y - halfH);
-    const maxX = Math.max(start.x, end.x);
-    const maxY = Math.max(start.y + halfH, end.y + halfH);
-
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }
-  // Helper for circle bounding box
-  function circleAABB(circle) {
-    const r = circle.radius || 0;
-    return {
-      x: circle.c.x - r,
-      y: circle.c.y - r,
-      width: r * 2,
-      height: r * 2,
-    };
-  }
-
-  if (obj.type === "poly") {
-    const aabb = polyAABB(obj);
-    return rectsIntersect(aabb, box);
-  } else if (obj.type === "line") {
-    const aabb = lineAABB(obj);
-    return rectsIntersect(aabb, box);
-  } else if (obj.type === "circle") {
-    // Use the new bounding box check for circles
-    const aabb = circleAABB(obj);
-    return rectsIntersect(aabb, box);
-  }
-
-  // default: not selectable by marquee
-  return false;
-}
-
 // This function should replace your existing getHitObjectId logic.
 // You can place it in utils-client.js and import it, or add it directly to handlers.js.
 
@@ -470,11 +494,32 @@ export function getHitObjectId(point, objects) {
         return obj.id;
       }
     } else if (obj.type === "line") {
-      // Your existing line hit detection logic here...
-      // For example:
-      const dist = distanceToLineSegment(point, obj.start, obj.end);
-      const thickness = (obj.height || 4) / 2 + 3; // Add buffer for easier clicking
-      if (dist < thickness) {
+      // FIX: Use OBB (Oriented Bounding Box) detection for precise rectangular clicks
+      const start = obj.start;
+      const end = computeEnd(obj); // Ensure we have the calculated end point
+
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const len = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+
+      // Transform mouse point into line's local space
+      const cos = Math.cos(-angle);
+      const sin = Math.sin(-angle);
+      const rx = (point.x - start.x) * cos - (point.y - start.y) * sin;
+      const ry = (point.x - start.x) * sin + (point.y - start.y) * cos;
+
+      const height = typeof obj.height === "number" ? obj.height : 4;
+      const halfH = height / 2;
+      const buffer = 5; // Small pixel buffer for easier clicking
+
+      // Check if point is inside the rectangle (0 to length, -halfH to halfH)
+      if (
+        rx >= -buffer &&
+        rx <= len + buffer &&
+        ry >= -halfH - buffer &&
+        ry <= halfH + buffer
+      ) {
         return obj.id;
       }
     } else if (obj.type === "circle") {
@@ -786,64 +831,160 @@ function isConvex(poly) {
 
 /**
  * Creates a server-ready polygon object from absolute vertices.
- * This is the centralized function to ensure all created polygons are valid.
- * It checks for vertex count, self-intersections, and non-degenerate (non-zero area) polygons.
- *
- * @param {Array<{x: number, y: number}>} absoluteVertices - Vertices in world coordinates.
- * @param {string} polyType - "none", "bouncy", "death", etc.
- * @param {object} [baseProps={}] - Optional base properties (like a, scale) to inherit.
- * @returns {object|null} A valid server object, or null if the polygon is degenerate.
+ * Correctly applies inverse rotation AND inverse scale so the shape stays consistent.
  */
 export function createValidPolygonObject(
   absoluteVertices,
   polyType = "none",
   baseProps = {},
 ) {
-  // 1. Check vertex count
-  if (!absoluteVertices || absoluteVertices.length < 3) {
-    return null;
-  }
+  if (!absoluteVertices || absoluteVertices.length < 3) return null;
+  if (polygonArea(absoluteVertices) < 1.0) return null;
+  if (polygonSelfIntersects(absoluteVertices)) return null;
 
-  // Check for degenerate (zero or near-zero area) polygons.
-  // This prevents 0-area polygons like [A, B, A] from being created.
-  if (polygonArea(absoluteVertices) < 1.0) {
-    return null;
-  }
-  
-  // 2. Check for self-intersections (NEW CHECK)
-  if (polygonSelfIntersects(absoluteVertices)) {
-    console.warn(
-      "[createValidPolygonObject] Skipping self-intersecting polygon.",
-      absoluteVertices,
-    );
-    return null;
-  }
-
-  // 3. Calculate center
   const c = calculatePolygonCenter(absoluteVertices);
+  if (!c || !isFinite(c.x) || !isFinite(c.y)) return null;
 
-  // 4. Check for degenerate polygon (which results in bad centroid)
-  // This catches 0-area polygons (lines) and invalid calculations.
-  if (!c || !isFinite(c.x) || !isFinite(c.y)) {
-    console.warn(
-      "[createValidPolygonObject] Skipping degenerate polygon with invalid centroid.",
-      absoluteVertices,
-    );
-    return null;
-  }
+  // FIX: Apply inverse rotation AND inverse scale
+  const angle = baseProps.a || 0;
+  const s = baseProps.scale || 1; // Get current scale
 
-  // 5. Calculate relative vertices
-  const v = absoluteVertices.map((p) => ({ x: p.x - c.x, y: p.y - c.y }));
+  const v = absoluteVertices.map((p) => {
+    // 1. Translate to center
+    let rel = { x: p.x - c.x, y: p.y - c.y };
 
-  // 6. Return the valid, formatted object
+    // 2. Inverse Rotation
+    if (angle !== 0) {
+      rel = rotatePoint(rel, -angle);
+    }
+
+    // 3. Inverse Scale (This was missing!)
+    return {
+      x: rel.x / s,
+      y: rel.y / s,
+    };
+  });
+
   return {
     type: "poly",
     c,
     v,
-    a: baseProps.a || 0,
-    scale: baseProps.scale || 1,
+    a: angle,
+    scale: s,
     polyType: polyType || "none",
   };
+}
+/**
+ * Returns true if the object intersects with the selection box.
+ * Uses precise polygon intersection for lines to avoid loose bounding box selection.
+ */
+export function isObjectInSelectionBox(obj, box) {
+  if (!obj || !box) return false;
+
+  // Helper: check if any point in `points` is inside `rect`
+  const anyPointInRect = (points, rect) => {
+    return points.some(
+      (p) =>
+        p.x >= rect.x &&
+        p.x <= rect.x + rect.width &&
+        p.y >= rect.y &&
+        p.y <= rect.y + rect.height,
+    );
+  };
+
+  // Helper: check if any point in `points` is inside `poly` (using existing isPointInPolygon)
+  const anyPointInPoly = (points, polyVerts) => {
+    return points.some((p) => isPointInPolygon(p, polyVerts));
+  };
+
+  // Selection Box corners
+  const boxCorners = [
+    { x: box.x, y: box.y },
+    { x: box.x + box.width, y: box.y },
+    { x: box.x + box.width, y: box.y + box.height },
+    { x: box.x, y: box.y + box.height },
+  ];
+
+  let objVerts = [];
+
+  if (obj.type === "poly") {
+    // Reconstruct absolute vertices for the polygon
+    const c = obj.c || { x: 0, y: 0 };
+    const s = obj.scale || 1;
+    const rad = ((obj.a || 0) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    objVerts = (obj.v || []).map((p) => {
+      const sx = p.x * s,
+        sy = p.y * s;
+      return {
+        x: sx * cos - sy * sin + c.x,
+        y: sx * sin + sy * cos + c.y,
+      };
+    });
+  } else if (obj.type === "line") {
+    // Construct 4 corners of the thick line
+    const start = obj.start;
+    const end = computeEnd(obj) || obj.end;
+    const h = (obj.height || 4) / 2;
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy);
+
+    if (len === 0) {
+      // Dot case
+      return (
+        box.x <= start.x + h &&
+        box.x + box.width >= start.x - h &&
+        box.y <= start.y + h &&
+        box.y + box.height >= start.y - h
+      );
+    }
+
+    const nx = (-dy / len) * h;
+    const ny = (dx / len) * h;
+
+    objVerts = [
+      { x: start.x + nx, y: start.y + ny },
+      { x: start.x - nx, y: start.y - ny },
+      { x: end.x - nx, y: end.y - ny },
+      { x: end.x + nx, y: end.y + ny },
+    ];
+  } else if (obj.type === "circle") {
+    // AABB check is usually sufficient for circles, or distance check
+    const r = obj.radius || 0;
+    // Check if circle center is in expanded box (Box + radius padding)
+    // This is equivalent to Circle intersects Box
+    const closestX = Math.max(box.x, Math.min(obj.c.x, box.x + box.width));
+    const closestY = Math.max(box.y, Math.min(obj.c.y, box.y + box.height));
+    const dx = obj.c.x - closestX;
+    const dy = obj.c.y - closestY;
+    return dx * dx + dy * dy <= r * r;
+  } else {
+    return false;
+  }
+
+  // General Polygon vs Box Intersection (SAT-like check)
+  // 1. Check if any Object vertex is in Box
+  if (anyPointInRect(objVerts, box)) return true;
+
+  // 2. Check if any Box vertex is in Object
+  if (anyPointInPoly(boxCorners, objVerts)) return true;
+
+  // 3. Check if any edges intersect (handles 'crossing' case)
+  for (let i = 0; i < objVerts.length; i++) {
+    const p1 = objVerts[i];
+    const p2 = objVerts[(i + 1) % objVerts.length];
+    for (let j = 0; j < 4; j++) {
+      const q1 = boxCorners[j];
+      const q2 = boxCorners[(j + 1) % 4];
+      if (segmentsIntersect(p1, p2, q1, q2)) return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1592,7 +1733,10 @@ export function dedupeAndCloseRing(pts, eps = 0.5) {
   if (out.length >= 3) {
     const first = out[0],
       last = out[out.length - 1];
-    if (Math.abs(first[0] - last[0]) > EPS || Math.abs(first[1] - last[1]) > EPS) {
+    if (
+      Math.abs(first[0] - last[0]) > EPS ||
+      Math.abs(first[1] - last[1]) > EPS
+    ) {
       out.push([first[0], first[1]]);
     }
   }
@@ -1697,32 +1841,144 @@ export function stitchHoleIntoOuter(outer, hole) {
   return stitched;
 }
 
-
 export const areaOfRing = (ring) => Math.abs(signedArea(ring));
 
 export const dedupeRing = (ring, eps = EPS_DEDUPE) => {
-
   if (!ring || ring.length < 3) return ring;
 
   const out = [ring[0]];
 
   for (let i = 1; i < ring.length; i++) {
-
-    const a = ring[i], b = out[out.length - 1];
+    const a = ring[i],
+      b = out[out.length - 1];
 
     if (Math.hypot(a[0] - b[0], a[1] - b[1]) > eps) out.push(a);
-
   }
 
   if (out.length >= 3) {
+    const f = out[0],
+      l = out[out.length - 1];
 
-    const f = out[0], l = out[out.length - 1];
-
-    if (Math.abs(f[0] - l[0]) > EPS || Math.abs(f[1] - l[1]) > EPS) out.push([f[0], f[1]]);
-
+    if (Math.abs(f[0] - l[0]) > EPS || Math.abs(f[1] - l[1]) > EPS)
+      out.push([f[0], f[1]]);
   }
 
   return out;
-
 };
 
+/**
+ * Rotates a point around a pivot by a specific angle.
+ */
+export function rotateAround(point, pivot, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = point.x - pivot.x;
+  const dy = point.y - pivot.y;
+  return {
+    x: pivot.x + dx * cos - dy * sin,
+    y: pivot.y + dx * sin + dy * cos,
+  };
+}
+
+/**
+ * Calculates the geometric center of a list of selected objects.
+ */
+export function getGroupCentroid(objects) {
+  let sx = 0,
+    sy = 0,
+    count = 0;
+  objects.forEach((o) => {
+    if (o.type === "line") {
+      // For lines, use the midpoint
+      sx += (o.start.x + o.end.x) / 2;
+      sy += (o.start.y + o.end.y) / 2;
+    } else if (o.c) {
+      // For polys and circles, use their center 'c'
+      sx += o.c.x;
+      sy += o.c.y;
+    }
+    count++;
+  });
+  return count > 0 ? { x: sx / count, y: sy / count } : { x: 0, y: 0 };
+}
+
+/**
+ * Handles rotating multiple selected objects as a single rigid body.
+ */
+export function handleGroupRotation(selectedObjects, angleDelta) {
+  if (!selectedObjects || selectedObjects.length === 0) return;
+
+  const centroid = getGroupCentroid(selectedObjects);
+
+  selectedObjects.forEach((obj) => {
+    if (obj.type === "poly" || obj.type === "circle") {
+      // 1. Calculate new Orbit Position (Center)
+      const newCenter = rotateAround(obj.c, centroid, angleDelta);
+
+      // 2. Calculate new Intrinsic Angle (Absolute)
+      // FIX: Use 'a' (absolute) instead of 'angleDelta' to guarantee rotation
+      const currentAngle = obj.a || 0;
+      const newAngle = currentAngle + angleDelta;
+
+      Network.updateObject({
+        id: obj.id,
+        c: newCenter,
+        a: newAngle, // Send absolute angle 'a'
+      });
+    } else if (obj.type === "line") {
+      // Lines: Rotate endpoints (handles both position and angle implicitly)
+      const newStart = rotateAround(obj.start, centroid, angleDelta);
+      const newEnd = rotateAround(obj.end, centroid, angleDelta);
+
+      Network.updateObject({
+        id: obj.id,
+        start: newStart,
+        end: newEnd,
+      });
+    }
+  });
+}
+
+/**
+ * Handles scaling multiple polygons while maintaining relative distances.
+ */
+export function handleGroupScaling(selectedObjects, scaleDelta) {
+  if (!selectedObjects || selectedObjects.length === 0) return;
+
+  const centroid = getGroupCentroid(selectedObjects);
+
+  selectedObjects.forEach((obj) => {
+    // This logic specifically targets Polygons as requested
+    if (obj.type === "poly") {
+      const currentScale = obj.scale || 1;
+
+      // Safety: Prevent scaling to 0 or negative which breaks math/physics
+      if (currentScale + scaleDelta <= 0.01) return;
+
+      const newScale = currentScale + scaleDelta;
+
+      // 1. Calculate the Ratio of change (e.g., 1.1x larger)
+      const ratio = newScale / currentScale;
+
+      // 2. Calculate vector from Group Centroid to Object Center
+      const dx = obj.c.x - centroid.x;
+      const dy = obj.c.y - centroid.y;
+
+      // 3. Scale the distance vector by the ratio
+      // If object gets 10% bigger, it must move 10% further from the center
+      const newCenter = {
+        x: centroid.x + dx * ratio,
+        y: centroid.y + dy * ratio,
+      };
+
+      Network.updateObject({
+        id: obj.id,
+        scale: newScale,
+        c: newCenter,
+      });
+    }
+    // Note: Circles use 'radius', requiring different delta logic. 
+    // Lines use 'width/height'. This block protects them from corruption.
+  });
+}

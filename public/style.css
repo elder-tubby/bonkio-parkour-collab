@@ -1,7 +1,7 @@
 /* Globals & Variables */
 :root {
   /* Canvas sizing */
-  --canvas-width: 750px;
+  --canvas-width: 730px;
   --canvas-height: 500px;
   /* Layout spacing */
   --panel-gap: 1rem;

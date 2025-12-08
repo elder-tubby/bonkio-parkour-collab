@@ -1,6 +1,3 @@
-// public/ai-generator-utils.js
-// Contains the core physics simulation and map parsing logic.
-
 import { distance } from "./utils-client.js";
 
 // ----------------------------------------------------------------
@@ -9,19 +6,18 @@ import { distance } from "./utils-client.js";
 export const PHYSICS_SETTINGS = {
   TIME_STEP: 1 / 30,
   DRAG_FACTOR: -0.015,
-  GRAVITY_FORCE: 20,
-  MOVE_ACCEL_FORCE: 12,
-  JUMP_FORCE: -10, // -10 wworks
-  BOUNCE_FACTOR: 0.0,
-  // MASS: player.diameter,
+  GRAVITY_FORCE: 3000,
+  MOVE_ACCEL_FORCE: 1800,
+  JUMP_FORCE: -1550,
+  // NOTE: per your request, object bounciness is defined once here
+  OBJ_BOUNCINESS: 0.8,
   // Ball can only jump if ground normal.y is <= this value
   // cos(29.5 degrees) = 0.8703
   MAX_JUMP_SLOPE_NORMAL: -0.8703,
   // Ball is considered "grounded" if normal.y is <= this value
   // cos(60 degrees) = 0.5
   MAX_GROUND_SLOPE_NORMAL: -0.5,
-  JUMP_VELOCITY_TOLERANCE: 30, // must have |vel.y| <= this to be allowed to jump
-
+  JUMP_VELOCITY_TOLERANCE: 37, // must have |vel.y| <= this to be allowed to jump
 };
 
 // ----------------------------------------------------------------
@@ -68,41 +64,44 @@ export function parseStateObjects(stateObjects) {
     if (obj.noPhysics) continue;
 
     if (obj.type === "line") {
-      // Logic for lines
       const { start, end, height } = obj;
       if (!start || !end) continue;
       physicsObjects.push({
+        id: obj.id,
         type: "line",
         start: obj.start,
         end: obj.end,
         height: height || 4,
         isDeath: obj.lineType === "death",
+        isBouncy: obj.lineType === "bouncy",
       });
     } else if (obj.type === "circle") {
-      // Logic for circles
       const { c, radius } = obj;
       if (!c || !radius) continue;
       physicsObjects.push({
+        id: obj.id,
         type: "circle",
         c: obj.c,
         radius: obj.radius,
         isDeath: obj.circleType === "death",
+        isBouncy: obj.circleType === "bouncy",
       });
     } else if (obj.type === "poly") {
-      // Logic for polygons: break into lines
       const absVerts = getAbsoluteVertices(obj);
       if (absVerts.length < 2) continue;
       const isDeath = obj.polyType === "death";
 
       for (let i = 0; i < absVerts.length; i++) {
         const p1 = absVerts[i];
-        const p2 = absVerts[(i + 1) % absVerts.length]; // Wrap around
+        const p2 = absVerts[(i + 1) % absVerts.length];
         physicsObjects.push({
-          type: "line",
+          id: obj.id,
+          type: "line", // not sure why this is line
           start: p1,
           end: p2,
           height: 4, // Polygons are treated as thin lines
           isDeath: isDeath,
+          isBouncy: obj.polyType === "bouncy", // inherit the boolean
         });
       }
     }
@@ -120,9 +119,11 @@ export class PhysicsPlayer {
     this.vel = { x: 0, y: 0 };
     this.accel = { x: 0, y: 0 };
     this.radius = radius;
-    this.mass = 0.111234705; // User-defined value
-    // this.mass = radius * 2
-  
+    this.mass = radius * 2;
+
+    // NOTE: player-side bounciness is not used in collision resolution anymore.
+    // Bounce occurs only when the *object* is marked `isBouncy`.
+
     this.isGrounded = true;
     this.wasGrounded = true;
     this.canJump = true;
@@ -178,7 +179,6 @@ export class PhysicsPlayer {
     return collisionResult;
   }
 
-  
   applyInput(input) {
     const { GRAVITY_FORCE, MOVE_ACCEL_FORCE, DRAG_FACTOR } = PHYSICS_SETTINGS;
 
@@ -186,7 +186,7 @@ export class PhysicsPlayer {
 
     // --- Vertical Acceleration (a = F / m) ---
     this.accel.y = GRAVITY_FORCE / this.mass; // Gravity
-    if (input.up && !this.wasGrounded) {
+    if (input.up) {
       this.accel.y += -MOVE_ACCEL_FORCE / this.mass; // Up force
     }
     if (input.down) {
@@ -203,12 +203,21 @@ export class PhysicsPlayer {
     this.accel.x += this.vel.x * DRAG_FACTOR;
   }
 
+  // In sim-utils.js -> PhysicsPlayer class
+
   handleCollisions(map) {
+    // Tolerance to count as grounded even if slightly floating (e.g. 0 gravity)
+    const GROUND_TOLERANCE = 0.05;
+
+    // --- NEW: Track all touched IDs and death status separately ---
+    const touchedIds = new Set();
+    let died = false;
+
     for (const obj of map.objects) {
-      let collisionInfo = { collided: false };
+      let info = { collided: false };
 
       if (obj.type === "line") {
-        collisionInfo = this.checkLineCollision(
+        info = this.checkLineCollision(
           obj.start,
           obj.end,
           this.pos,
@@ -216,7 +225,7 @@ export class PhysicsPlayer {
           obj.height,
         );
       } else if (obj.type === "circle") {
-        collisionInfo = this.checkCircleCollision(
+        info = this.checkCircleCollision(
           obj.c,
           obj.radius,
           this.pos,
@@ -224,56 +233,78 @@ export class PhysicsPlayer {
         );
       }
 
-      if (collisionInfo.collided) {
+      // 1. Handle Actual Physical Collision
+      if (info.collided) {
+        // Track the ID
+        if (obj.id) touchedIds.add(obj.id);
+
         if (obj.isDeath) {
-          return "DIED";
+          touchedIds.clear();
+          died = true;
         }
 
-        // --- Positional correction (push out of penetration) ---
-        // Add a tiny epsilon so we are definitely separated after resolution
+        // Positional correction (push out)
         const separationBias = 1e-3;
-        this.pos.x += collisionInfo.normal.x * (collisionInfo.penetration + separationBias);
-        this.pos.y += collisionInfo.normal.y * (collisionInfo.penetration + separationBias);
+        this.pos.x += info.normal.x * (info.penetration + separationBias);
+        this.pos.y += info.normal.y * (info.penetration + separationBias);
 
-        const dot =
-          this.vel.x * collisionInfo.normal.x +
-          this.vel.y * collisionInfo.normal.y;
+        const dot = this.vel.x * info.normal.x + this.vel.y * info.normal.y;
 
-        // --- Ground detection (unchanged logic) ---
-        if (collisionInfo.normal.y <= PHYSICS_SETTINGS.MAX_GROUND_SLOPE_NORMAL) {
+        // Ground detection
+        if (info.normal.y <= PHYSICS_SETTINGS.MAX_GROUND_SLOPE_NORMAL) {
           this.isGrounded = true;
-
-          if (collisionInfo.normal.y <= PHYSICS_SETTINGS.MAX_JUMP_SLOPE_NORMAL) {
+          if (info.normal.y <= PHYSICS_SETTINGS.MAX_JUMP_SLOPE_NORMAL) {
             this.canJump = true;
           }
         }
 
-        // --- Velocity response: ALWAYS remove the normal component if moving into surface ---
+        // Velocity response (Bounce / Slide)
         if (dot < 0) {
-          // projection of velocity onto normal
-          const v_normal_x = dot * collisionInfo.normal.x;
-          const v_normal_y = dot * collisionInfo.normal.y;
+          // --- CALCULATE DYNAMIC BOUNCINESS ---
+          const pB = 0.95; // Player: fixed at 0.95, never changes
+          const oB = obj.isBouncy ? 0.8 : -0.95; // Object: 0.8 if bouncy, 0.0 otherwise
 
-          // tangential velocity (velocity without the normal component)
+          let effectiveBounciness = 0;
+
+          if (pB > 0 && oB > 0) {
+            // If both positive, take the max
+            effectiveBounciness = Math.max(pB, oB);
+          } else {
+            // If one is negative (or both), combine them (add)
+            effectiveBounciness = pB + oB;
+          }
+
+          // Clamp at 0.
+          // If player (0.95) hits super sticky wall (-1.0),
+          // result is -0.05 → clamp to 0 → full slide.
+          effectiveBounciness = Math.max(0, effectiveBounciness);
+
+          const v_normal_x = dot * info.normal.x;
+          const v_normal_y = dot * info.normal.y;
+
           const v_tangential_x = this.vel.x - v_normal_x;
           const v_tangential_y = this.vel.y - v_normal_y;
 
-          // Remove the normal component so we don't keep moving into the surface
-          this.vel.x = v_tangential_x;
-          this.vel.y = v_tangential_y;
-
-          // Apply bounce (usually 0)
-          this.vel.x -= v_normal_x * PHYSICS_SETTINGS.BOUNCE_FACTOR;
-          this.vel.y -= v_normal_y * PHYSICS_SETTINGS.BOUNCE_FACTOR;
+          this.vel.x = v_tangential_x - v_normal_x * effectiveBounciness;
+          this.vel.y = v_tangential_y - v_normal_y * effectiveBounciness;
         }
-
-        // continue checking other objects (multiple collisions may exist)
+      }
+      // 2. Handle "Near Miss" (Ground Proximity Check)
+      else if (info.penetration > -GROUND_TOLERANCE) {
+        // We are not colliding, but we are very close (within tolerance).
+        // If the surface is floor-like, treat us as grounded.
+        if (info.normal.y <= PHYSICS_SETTINGS.MAX_GROUND_SLOPE_NORMAL) {
+          this.isGrounded = true;
+          if (info.normal.y <= PHYSICS_SETTINGS.MAX_JUMP_SLOPE_NORMAL) {
+            this.canJump = true;
+          }
+        }
       }
     }
-    return null;
+    // Return structured result instead of simple string
+    return { died, touchedIds: Array.from(touchedIds) };
   }
 
-  
   checkLineCollision(p1, p2, circlePos, circleRadius, lineHeight) {
     const { dist, closestPoint } = getClosestPointOnLineSegment(
       p1,
@@ -281,39 +312,44 @@ export class PhysicsPlayer {
       circlePos,
     );
     const collisionThreshold = circleRadius + lineHeight / 2;
+    const penetration = collisionThreshold - dist;
 
-    if (dist <= collisionThreshold) {
-      const penetration = collisionThreshold - dist;
-      // Normal points from line *to* circle
-      const normal =
-        dist < 1e-6
-          ? { x: 0, y: -1 } // Default to up if directly on top
-          : {
-              x: (circlePos.x - closestPoint.x) / dist,
-              y: (circlePos.y - closestPoint.y) / dist,
-            };
-      return { collided: true, penetration, normal, closestPoint };
-    }
-    return { collided: false };
+    // Calculate normal regardless of collision
+    const normal =
+      dist < 1e-6
+        ? { x: 0, y: -1 }
+        : {
+            x: (circlePos.x - closestPoint.x) / dist,
+            y: (circlePos.y - closestPoint.y) / dist,
+          };
+
+    // Return all data
+    return {
+      collided: dist <= collisionThreshold,
+      penetration,
+      normal,
+      closestPoint,
+    };
   }
 
   checkCircleCollision(circleC, circleR, ballPos, ballR) {
     const dist = distance(ballPos, circleC);
     const collisionThreshold = ballR + circleR;
+    const penetration = collisionThreshold - dist;
 
-    if (dist < collisionThreshold) {
-      const penetration = collisionThreshold - dist;
-      // Normal points from circle *to* ball
-      const normal =
-        dist < 1e-6
-          ? { x: 0, y: -1 } // Default
-          : {
-              x: (ballPos.x - circleC.x) / dist,
-              y: (ballPos.y - circleC.y) / dist,
-            };
-      return { collided: true, penetration, normal };
-    }
-    return { collided: false };
+    const normal =
+      dist < 1e-6
+        ? { x: 0, y: -1 }
+        : {
+            x: (ballPos.x - circleC.x) / dist,
+            y: (ballPos.y - circleC.y) / dist,
+          };
+
+    return {
+      collided: dist <= collisionThreshold,
+      penetration,
+      normal,
+    };
   }
 } // --- END OF PhysicsPlayer CLASS ---
 
@@ -335,4 +371,3 @@ function getClosestPointOnLineSegment(p1, p2, p) {
   };
   return { dist: distance(p, closestPoint), closestPoint };
 }
-

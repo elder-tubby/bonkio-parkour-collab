@@ -232,7 +232,7 @@ class UI {
       "lineAngleSlider",
       "Angle",
       0,
-      180,
+      360,
       0,
       "line-controls",
     );
@@ -241,7 +241,7 @@ class UI {
       "polyAngleSlider",
       "Angle",
       0,
-      180,
+      360,
       0,
       "poly-controls",
     );
@@ -280,6 +280,73 @@ class UI {
     this._queryDynamicElements();
   }
 
+  // Helper factory
+  createSliderHandlerFactory(elems) {
+    return (propName, type) => {
+      const uiProp = propName === "a" ? "angle" : propName;
+      const capitalized = uiProp.charAt(0).toUpperCase() + uiProp.slice(1);
+      const prefix = `${type}${capitalized}`; 
+      const sliderKey = `${prefix}Slider`;
+      const valueKey = `${prefix}Value`;
+
+      const slider = elems[sliderKey];
+      const valueLabel = elems[valueKey];
+      if (!slider) return;
+
+      // 1. Real-time Local Update (Visual Feedback)
+      const handleInput = () => {
+        const val = slider.value;
+        if (valueLabel) valueLabel.innerText = val;
+
+        const selectedIds = State.get("selectedObjectIds");
+        if (selectedIds.length === 0) return;
+
+        let parsed = parseFloat(val);
+        if (propName === "scale") parsed = parsed / 100.0;
+
+        // Update Local State Immediately
+        const objects = State.get("objects");
+        let changed = false;
+        objects.forEach(obj => {
+          if (selectedIds.includes(obj.id) && obj.type === type) {
+              // Update the specific property
+              if (propName === 'a') obj.a = parsed;
+              else if (propName === 'angle') obj.angle = parsed;
+              else if (propName === 'width') obj.width = parsed;
+              else if (propName === 'height') obj.height = parsed;
+              else if (propName === 'scale') obj.scale = parsed;
+              else if (propName === 'radius') obj.radius = parsed;
+              changed = true;
+          }
+        });
+
+        if (changed) {
+            State.set("objects", objects); // Trigger canvas redraw
+        }
+      };
+
+      // 2. Network Update (Commit on release)
+      const handleChange = () => {
+        if (valueLabel) valueLabel.innerText = slider.value;
+        const selectedIds = State.get("selectedObjectIds");
+        if (selectedIds.length === 0) return;
+
+        let parsed = parseFloat(slider.value);
+        if (propName === "scale") parsed = parsed / 100.0;
+
+        const payload = {};
+        payload[propName] = Number.isFinite(parsed) ? parsed : slider.value;
+
+        selectedIds.forEach((id) => {
+          Network.updateObject({ id, ...payload });
+        });
+      };
+
+      slider.addEventListener("input", handleInput);
+      slider.addEventListener("change", handleChange);
+    };
+  }
+  
   setObjectEditorVisible(selectedObjects) {
     const count = Array.isArray(selectedObjects) ? selectedObjects.length : 0;
     const controlBox = this.elems.controlBox;

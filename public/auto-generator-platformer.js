@@ -27,7 +27,7 @@ const CONFIG = {
     maxVertices: 10,
     minArea: 1000,
     maxArea: 5000,
-    typeWeights: { none: 1, bouncy: 1, death: 1 },
+    typeWeights: { none: 1, bouncy: 1, death: 0 },
     // New: Placement zone [minY, maxY] as fractions of canvas height
     placementZone: [0.7, 1.0], 
   },
@@ -38,7 +38,7 @@ const CONFIG = {
     maxVertices: 10,
     minArea: 1000,
     maxArea: 5000,
-    typeWeights: { none: 1, bouncy: 1, death: 1 },
+    typeWeights: { none: 1, bouncy: 1, death: 0 },
     placementZone: [0.4, 0.7],
   },
   // Object Category 3 (was "floaters")
@@ -48,7 +48,7 @@ const CONFIG = {
     maxVertices: 10,
     minArea: 1000,
     maxArea: 5000,
-    typeWeights: { none: 1, bouncy: 1, death: 1 },
+    typeWeights: { none: 1, bouncy: 1, death: 0 },
     placementZone: [0.1, 0.4],
   },
   // General

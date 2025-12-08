@@ -7,7 +7,7 @@ export function copyLineInfo() {
   const cz = State.get("capZone");
   const spawn = State.get("spawnCircle");
   const stateObjects = State.get("objects") || [];
-  const colors = State.get("colors"); // Get current colors
+  const stateColors = State.get("colors"); // Get current colors
 
   if (!cz) throw new Error("No capZone in state!");
 
@@ -21,11 +21,13 @@ export function copyLineInfo() {
   const scaleX = EW / GW;
   const scaleY = EH / GH;
 
-  // background and capzone (unchanged)
-  const bgLine = {
+  const exportedObjects = [];
+
+  // 1. Export Background as a pseudo-object
+  exportedObjects.push({
     id: 0,
     type: "line",
-    color: rgbToDecimal(colors.background),
+    color: rgbToDecimal(stateColors.background), // EXPORT COLOR DIRECTLY
     x: 935,
     y: 350,
     width: 1000,
@@ -35,11 +37,8 @@ export function copyLineInfo() {
     noPhysics: true,
     noGrapple: true,
     isFloor: true,
-  };
+  });
 
-  const exportedObjects = [];
-
-  exportedObjects.push(bgLine);
 
   // line id counter (starts at 2 so first exported line gets id = 2)
   let nextObjId = 1;
@@ -49,35 +48,34 @@ export function copyLineInfo() {
     if (!obj) continue;
 
     // POLYGON -> export as poly (preserve original mapping logic)
-    if (obj.type === "poly") {
-      const c = obj.c || {};
-      const v = Array.isArray(obj.v) ? obj.v : [];
-      const a = typeof obj.a === "number" ? obj.a : 0;
-      const sc = typeof obj.scale === "number" ? obj.scale : 1;
-      const polyType = obj.polyType || "normal";
+      if (obj.type === "poly") {
+        const c = obj.c || {};
+        const v = Array.isArray(obj.v) ? obj.v : [];
+        const a = typeof obj.a === "number" ? obj.a : 0;
+        const sc = typeof obj.scale === "number" ? obj.scale : 1;
+        const polyType = obj.polyType || "normal";
 
-      const centerExternal = gameToExternal(c.x || 0, c.y || 0);
-      // keep vertices untouched (no scaling here)
-      const externalVertices = v.map(function (p) {
-        return {
-          x: p && typeof p.x === "number" ? p.x : 0,
-          y: p && typeof p.y === "number" ? p.y : 0,
-        };
-      });
+        const centerExternal = gameToExternal(c.x || 0, c.y || 0);
 
-      let isBouncy = false;
-      let isDeath = false;
-      let colorDecimal; // Use a specific variable
+        // Map to external coordinates first
+        let externalVertices = v.map(function (p) {
+          return {
+            x: p && typeof p.x === "number" ? p.x : 0,
+            y: p && typeof p.y === "number" ? p.y : 0,
+          };
+        });
+
+        // Apply Clockwise enforcement
+        externalVertices = ensureClockwise(externalVertices);
+
+        let isBouncy = false;
+        let isDeath = false;
+      let colorDecimal = rgbToDecimal(obj.color || stateColors.none); // Use object attribute
       if (polyType === "bouncy") {
-        colorDecimal = rgbToDecimal(colors.bouncy);
         isBouncy = true;
       } else if (polyType === "death") {
-        colorDecimal = rgbToDecimal(colors.death);
         isDeath = true;
-      } else {
-        colorDecimal = rgbToDecimal(colors.none);
       }
-
       exportedObjects.push({
         id: nextObjId++,
         type: "poly",
@@ -107,15 +105,11 @@ export function copyLineInfo() {
 
       let isBouncy = false;
       let isDeath = false;
-      let colorDecimal;
+      let colorDecimal = rgbToDecimal(obj.color || stateColors.none); // Use object attribute
       if (circleType === "bouncy") {
-        colorDecimal = rgbToDecimal(colors.bouncy);
         isBouncy = true;
       } else if (circleType === "death") {
-        colorDecimal = rgbToDecimal(colors.death);
         isDeath = true;
-      } else {
-        colorDecimal = rgbToDecimal(colors.none);
       }
 
       exportedObjects.push({
@@ -254,21 +248,18 @@ export function copyLineInfo() {
       let isBouncy = false;
       let isDeath = false;
       let bounciness;
-      let colorDecimal;
+      let colorDecimal = rgbToDecimal(obj.color || stateColors.none);
       switch (obj.lineType) {
         case "bouncy":
           isBouncy = true;
           bounciness = null;
-          colorDecimal = rgbToDecimal(colors.bouncy);
           break;
         case "death":
           isDeath = true;
           bounciness = -1;
-          colorDecimal = rgbToDecimal(colors.death);
           break;
         default:
           bounciness = -1;
-          colorDecimal = rgbToDecimal(colors.none);
       }
 
       exportedObjects.push({
@@ -319,7 +310,6 @@ export function copyLineInfo() {
     spawn: { spawnX: spawnExternal.x - 935, spawnY: spawnExternal.y - 350 },
     mapSize: mapSize,
     objects: exportedObjects,
-    colors: colors,
   };
 
   navigator.clipboard
@@ -383,6 +373,7 @@ export async function pasteLines() {
   let data;
   try {
     data = JSON.parse(raw);
+    recursiveRound(data);
   } catch (e) {
     showToast("Clipboard does not contain valid JSON.", true);
     return;
@@ -401,75 +392,48 @@ export async function pasteLines() {
   const isOldFormat = !data.objects && data.lines;
   // --- End new logic ---
 
-  let importedColors = null; // Will hold the final colors object
+  // RECONSTRUCT Global Colors from object instances
+  // We look for the first occurrence of specific types
+  // Default fallbacks
+  let newColors = {
+    background: "rgb(0,0,0)",
+    none: "rgb(255,255,255)",
+    bouncy: "rgb(167,196,190)",
+    death: "rgb(255,0,0)",
+  };
 
-  // Check for modern 'colors' object first
-  if (data.colors && typeof data.colors === "object") {
-    const { background, none, bouncy, death } = data.colors;
-    if (background && none && bouncy && death) {
-      importedColors = data.colors;
+  // Track what we've found to stop searching early
+  let found = { bg: false, n: false, b: false, d: false };
+
+  for (const obj of objectList) {
+    if (!obj || !obj.color) continue;
+    const rgb = decimalToRgb(obj.color);
+
+    if (obj.isBgLine && !found.bg) {
+      newColors.background = rgb;
+      found.bg = true;
     }
-  } else if (isOldFormat) {
-    // --- NEW: Extract colors from old format if 'colors' object is missing ---
-    let foundColors = {
-      background: null,
-      none: null,
-      bouncy: null,
-      death: null,
-    };
-    // Find the first instance of each type to get its color
-    for (const line of objectList) {
-      if (!line) continue;
-      const colorDecimal = line.color; // Old format uses decimal
+    // Determine logical type
+    const t =
+      obj.lineType ||
+      obj.polyType ||
+      obj.circleType ||
+      (obj.isBouncy ? "bouncy" : obj.isDeath ? "death" : "none");
 
-      // --- Important: Extract BG color even if noPhysics is true ---
-      if (line.isBgLine && foundColors.background === null) {
-        foundColors.background = decimalToRgb(colorDecimal);
-      }
-      // --- Skip further color extraction if it's a noPhysics object (unless it's BG) ---
-      if (line.noPhysics === true && !line.isBgLine) continue;
-
-      // Extract other colors only from objects that have physics
-      if (line.isBouncy && foundColors.bouncy === null) {
-        foundColors.bouncy = decimalToRgb(colorDecimal);
-      } else if (line.isDeath && foundColors.death === null) {
-        foundColors.death = decimalToRgb(colorDecimal);
-      } else if (
-        !line.isBgLine &&
-        !line.isBouncy &&
-        !line.isDeath &&
-        foundColors.none === null
-      ) {
-        // Assume it's 'none' if not background, bouncy, or death
-        foundColors.none = decimalToRgb(colorDecimal);
-      }
-
-      // Stop searching if all found
-      if (
-        foundColors.background &&
-        foundColors.none &&
-        foundColors.bouncy &&
-        foundColors.death
-      ) {
-        break;
+    if (!obj.isBgLine && !obj.isCapzone) {
+      if (t === "none" && !found.n) {
+        newColors.none = rgb;
+        found.n = true;
+      } else if (t === "bouncy" && !found.b) {
+        newColors.bouncy = rgb;
+        found.b = true;
+      } else if (t === "death" && !found.d) {
+        newColors.death = rgb;
+        found.d = true;
       }
     }
-    // Use defaults if any color type wasn't found
-    importedColors = {
-      background:
-        foundColors.background ||
-        State.get("colors").background ||
-        "rgb(0, 0, 0)",
-      none:
-        foundColors.none || State.get("colors").none || "rgb(255, 255, 255)",
-      bouncy:
-        foundColors.bouncy ||
-        State.get("colors").bouncy ||
-        "rgb(167, 196, 190)",
-      death: foundColors.death || State.get("colors").death || "rgb(255, 0, 0)",
-    };
-    // --- End color extraction ---
   }
+
   const GW = UI.elems.canvas.width;
   const GH = UI.elems.canvas.height;
   if (!(GW > 0 && GH > 0)) {
@@ -478,6 +442,7 @@ export async function pasteLines() {
   }
 
   const importedObjects = [];
+
   let capZoneData = null;
 
   for (const obj of objectList) {
@@ -492,6 +457,9 @@ export async function pasteLines() {
       continue;
     }
     if (obj.isBgLine) continue;
+
+    // IMPORTANT: Pass the specific color decimal -> rgb string
+    const specificColor = decimalToRgb(obj.color);
 
     // --- NEW: Force type to 'line' if old format is detected ---
     const objType = isOldFormat ? "line" : obj.type;
@@ -515,6 +483,7 @@ export async function pasteLines() {
         c: centerGame,
         v: gameVertices,
         a: obj.angle || 0,
+        color: specificColor,
         scale: obj.scale || 1,
         polyType,
       });
@@ -533,6 +502,7 @@ export async function pasteLines() {
         type: "circle",
         c: centerGame,
         radius: radiusGame,
+        color: specificColor,
         circleType,
       });
     } else if (objType === "line") {
@@ -561,6 +531,7 @@ export async function pasteLines() {
         type: "line",
         start: startGame,
         end: endGame,
+        color: specificColor,
         lineType,
         height,
       });
@@ -634,10 +605,21 @@ export async function pasteLines() {
     spawn: spawnGame,
     capZone: capZoneGame,
     mapSize,
-    colors: importedColors,
+    colors: newColors,
   };
   Network.pasteLines(payload);
   showToast(`Pasting ${importedObjects.length} objects...`);
+}
+
+function recursiveRound(obj) {
+  if (typeof obj !== 'object' || obj === null) return;
+  for (const key in obj) {
+    if (typeof obj[key] === 'number') {
+      obj[key] = parseFloat(obj[key].toFixed(3));
+    } else if (typeof obj[key] === 'object') {
+      recursiveRound(obj[key]);
+    }
+  }
 }
 
 function externalToGame(extX, extY) {
@@ -686,4 +668,25 @@ function decimalToRgb(decimal) {
   const g = (decimal >> 8) & 0xff;
   const b = decimal & 0xff;
   return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
+ * Ensures vertices are ordered Clockwise (CW) for Y-down coordinates.
+ * Returns a new array if reversal is needed, otherwise returns original.
+ */
+function ensureClockwise(vertices) {
+  if (!vertices || vertices.length < 3) return vertices;
+
+  let area = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const p1 = vertices[i];
+    const p2 = vertices[(i + 1) % vertices.length];
+    // Formula: sum of (x2 - x1) * (y2 + y1)
+    // In Y-down coord system: Negative = CW, Positive = CCW
+    area += (p2.x - p1.x) * (p2.y + p1.y);
+  }
+
+  // If area is positive (CCW), reverse to make it CW
+  // We use [...vertices] to create a copy before reversing to avoid mutation side-effects
+  return area > 0 ? [...vertices].reverse() : vertices;
 }

@@ -200,6 +200,8 @@ function bindNetworkEvents() {
         UI.updateLineEditorValues(updatedObject);
       if (updatedObject.type === "poly")
         UI.updatePolygonEditorValues(updatedObject);
+      if (updatedObject.type === "circle")
+        UI.updateCircleEditorValues(updatedObject);
     }
   });
 

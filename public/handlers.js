@@ -16,6 +16,8 @@ import {
   canSelectObject,
   createValidPolygonObject,
   splitConcaveIntoConvex,
+  handleGroupRotation,
+  handleGroupScaling
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { generatePlatformerMap } from "./auto-generator-platformer.js";
@@ -667,6 +669,8 @@ function handleCanvasUp(e) {
 
 // --- Keyboard Handlers ---
 
+// --- handlers.js ---
+
 function startNudgeLoop() {
   if (nudgeLoopId) return;
 
@@ -677,16 +681,37 @@ function startNudgeLoop() {
       return;
     }
 
-    const nudge = { x: 0, y: 0 };
-    if (keysDown.has("ArrowUp")) nudge.y -= 1;
-    if (keysDown.has("ArrowDown")) nudge.y += 1;
-    if (keysDown.has("ArrowLeft")) nudge.x -= 1;
-    if (keysDown.has("ArrowRight")) nudge.x += 1;
+    let dx = 0;
+    let dy = 0;
+    const speed = 2; // Speed of movement per frame
 
-    if (nudge.x !== 0 || nudge.y !== 0) {
-      selectedIds.forEach((id) => {
-        Network.updateObject({ id, nudge });
+    if (keysDown.has("ArrowUp")) dy -= speed;
+    if (keysDown.has("ArrowDown")) dy += speed;
+    if (keysDown.has("ArrowLeft")) dx -= speed;
+    if (keysDown.has("ArrowRight")) dx += speed;
+
+    if (dx !== 0 || dy !== 0) {
+      const objects = State.get("objects");
+
+      // 1. Update Local State ONLY (Fixes relative drift & visual smoothness)
+      const updatedObjects = objects.map((obj) => {
+        if (!selectedIds.includes(obj.id)) return obj;
+
+        // Calculate new absolute coords based on type
+        if (obj.type === "poly" || obj.type === "circle") {
+          return { ...obj, c: { x: obj.c.x + dx, y: obj.c.y + dy } };
+        } else if (obj.type === "line") {
+          return {
+            ...obj,
+            start: { x: obj.start.x + dx, y: obj.start.y + dy },
+            end: { x: obj.end.x + dx, y: obj.end.y + dy },
+          };
+        }
+        return obj;
       });
+
+      State.set("objects", updatedObjects);
+      // Note: Network.updateObject is REMOVED from here
     }
     nudgeLoopId = requestAnimationFrame(nudgeLoop);
   };
@@ -697,6 +722,21 @@ function stopNudgeLoop() {
   if (nudgeLoopId) {
     cancelAnimationFrame(nudgeLoopId);
     nudgeLoopId = null;
+
+    // 2. Send FINAL absolute positions to server on KeyUp
+    const selectedIds = State.get("selectedObjectIds");
+    const objects = State.get("objects");
+
+    selectedIds.forEach((id) => {
+      const obj = objects.find((o) => o.id === id);
+      if (obj) {
+        if (obj.type === "poly" || obj.type === "circle") {
+          Network.updateObject({ id, c: obj.c });
+        } else if (obj.type === "line") {
+          Network.updateObject({ id, start: obj.start, end: obj.end });
+        }
+      }
+    });
   }
 }
 
@@ -840,6 +880,41 @@ function handleKeyDown(e) {
     selectedIds.includes(o.id),
   );
   if (objects.length === 0) return;
+
+  // If Shift+Left/Right is pressed and multiple objects are selected, rotate as a group.
+  if (
+    objects.length > 1 &&
+    e.shiftKey &&
+    (key === "arrowleft" || key === "arrowright")
+  ) {
+    e.preventDefault();
+    const step = e.ctrlKey ? 10 : 1;
+    const delta = key === "arrowleft" ? -step : step;
+    handleGroupRotation(objects, delta);
+    return; // Skip individual object handling
+  }
+
+  // Group Scaling Interception (Alt + Up/Down)
+  if (
+    objects.length > 1 &&
+    e.altKey &&
+    (key === "arrowup" || key === "arrowdown")
+  ) {
+    // Check if we are scaling Polygons (prevent interference with Lines/Circles)
+    const hasPoly = objects.some((o) => o.type === "poly");
+
+    if (hasPoly) {
+      e.preventDefault();
+      // Determine delta (Up = grow, Down = shrink)
+      // Limit shrink speed for precision, increase grow speed for utility
+      if (key === "arrowup" && objects.some(o => o.scale >= 10)) return; // Max scale cap
+
+      const delta = key === "arrowup" ? 0.1 : -0.1;
+
+      handleGroupScaling(objects, delta);
+      return; // Stop execution to prevent default individual behavior
+    }
+  }
 
   if (e.key.startsWith("Arrow") && !e.altKey && !e.shiftKey) {
     e.preventDefault();
@@ -1021,9 +1096,71 @@ function createSliderHandlerFactory(elems) {
       return;
     }
 
-    // handleInput: Only updates the visual text value
+    // REPLACE the old handleInput with this:
     const handleInput = () => {
-      if (valueLabel) valueLabel.innerText = slider.value;
+      const val = slider.value;
+      if (valueLabel) valueLabel.innerText = val;
+
+      const selectedIds = State.get("selectedObjectIds");
+      if (selectedIds.length === 0) return;
+
+      let parsed = parseFloat(val);
+      if (propName === "scale") parsed = parsed / 100.0;
+
+      const objects = State.get("objects");
+      let changed = false;
+
+      objects.forEach((obj) => {
+        if (selectedIds.includes(obj.id) && obj.type === type) {
+          // Handle Polys and Circles (Simple properties)
+          if (propName === "scale") obj.scale = parsed;
+          else if (propName === "radius") obj.radius = parsed;
+          else if (propName === "a") obj.a = parsed;
+          else if (propName === "height") obj.height = parsed;
+          // Handle Line Geometry (Width/Angle) with Center Pivot
+          else if (
+            type === "line" &&
+            (propName === "width" || propName === "angle")
+          ) {
+            // 1. Calculate current center
+            const cx = (obj.start.x + obj.end.x) / 2;
+            const cy = (obj.start.y + obj.end.y) / 2;
+
+            // 2. Determine current or new values
+            // If property is missing on obj, calculate from coordinates
+            const dx = obj.end.x - obj.start.x;
+            const dy = obj.end.y - obj.start.y;
+
+            const currentW =
+              typeof obj.width === "number" ? obj.width : Math.hypot(dx, dy);
+            const currentA =
+              typeof obj.angle === "number"
+                ? obj.angle
+                : (Math.atan2(dy, dx) * 180) / Math.PI;
+
+            const newW = propName === "width" ? parsed : currentW;
+            const newA = propName === "angle" ? parsed : currentA;
+
+            // 3. Update properties
+            obj.width = newW;
+            obj.angle = newA;
+
+            // 4. Recalculate Start/End from Center
+            const rad = (newA * Math.PI) / 180;
+            const halfW = newW / 2;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+
+            obj.start.x = cx - cos * halfW;
+            obj.start.y = cy - sin * halfW;
+            obj.end.x = cx + cos * halfW;
+            obj.end.y = cy + sin * halfW;
+          }
+          changed = true;
+        }
+      });
+
+      if (changed) State.set("objects", objects);
     };
 
     // handleChange: Fires on mouseup, sends the final network request
@@ -1177,9 +1314,12 @@ export function bindUIEvents() {
   safeAddEvent(e.copyLineInfoBtn, "click", () => copyLineInfo());
   safeAddEvent(e.pasteMapBtn, "click", () => pasteLines());
 
+  // Find this block around line 832 and replace it:
   safeAddEvent(e.spawnSizeSlider, "input", (ev) => {
     const size = parseInt(ev.target.value, 10);
     if (e.spawnSizeValue) e.spawnSizeValue.innerText = size;
+    // ADD THIS LINE to update visual diameter immediately
+    State.set("mapSize", size);
   });
   safeAddEvent(e.spawnSizeSlider, "change", (ev) => {
     const size = parseInt(ev.target.value, 10);
@@ -1266,52 +1406,55 @@ export function bindUIEvents() {
     startGame(options);
   });
 
-
   // Replace the entire form submit handler with this:
-    safeAddEvent(e.agpForm, "submit", (ev) => {
-      ev.preventDefault();
-      const submitter = ev.submitter;
+  safeAddEvent(e.agpForm, "submit", (ev) => {
+    ev.preventDefault();
+    const submitter = ev.submitter;
 
-      if (State.get("objects").length > 0) {
-        showToast("Clear the map before auto-generating!", true);
-        return;
-      }
-      State.set("generatedPath", null);
-      const options = UI.getGenerationOptions();
-      window._tempGenOptions = options;
-      UI.hide("autoGeneratePopup");
+    if (State.get("objects").length > 0) {
+      showToast("Clear the map before auto-generating!", true);
+      return;
+    }
+    State.set("generatedPath", null);
+    const options = UI.getGenerationOptions();
+    window._tempGenOptions = options;
+    UI.hide("autoGeneratePopup");
 
-      if (submitter && submitter.id === "agpRandomRouteBtn") {
-        // Random Path (Path generated internally, polygons returned)
-        const newPolygons = generateRandomPathAndPolygons(options);
-        handleGeneratedPolygons(newPolygons);
-        delete window._tempGenOptions;
-        resetStatusToDefault();
-      } else {
-        // Custom Path (User Draw)
-        startPathDrawing(options)
-          .then((pathPoints) => { // Now receives the raw path points
-            // 1. Generate Ribbon Polygons from the drawn path points
-            const newPolygons = generatePolygonsFromPathPoints(pathPoints, options);
+    if (submitter && submitter.id === "agpRandomRouteBtn") {
+      // Random Path (Path generated internally, polygons returned)
+      const newPolygons = generateRandomPathAndPolygons(options);
+      handleGeneratedPolygons(newPolygons);
+      delete window._tempGenOptions;
+      resetStatusToDefault();
+    } else {
+      // Custom Path (User Draw)
+      startPathDrawing(options)
+        .then((pathPoints) => {
+          // Now receives the raw path points
+          // 1. Generate Ribbon Polygons from the drawn path points
+          const newPolygons = generatePolygonsFromPathPoints(
+            pathPoints,
+            options,
+          );
 
-            // 2. Handle the results
-            handleGeneratedPolygons(newPolygons);
+          // 2. Handle the results
+          handleGeneratedPolygons(newPolygons);
 
-            // 3. Clear the path visual (startPathDrawing leaves it up)
-            State.set("generatedPath", null);
-          })
-          .catch((err) => {
-            console.error("Path drawing failed:", err);
-            showToast(err.message || "Path drawing cancelled.", true);
-            State.set("generatedPath", null); // Clear visual path on error/cancel
-          })
-          .finally(() => {
-            delete window._tempGenOptions;
-            resetStatusToDefault();
-          });
-      }
-    });
-  
+          // 3. Clear the path visual (startPathDrawing leaves it up)
+          State.set("generatedPath", null);
+        })
+        .catch((err) => {
+          console.error("Path drawing failed:", err);
+          showToast(err.message || "Path drawing cancelled.", true);
+          State.set("generatedPath", null); // Clear visual path on error/cancel
+        })
+        .finally(() => {
+          delete window._tempGenOptions;
+          resetStatusToDefault();
+        });
+    }
+  });
+
   safeAddEvent(e.chatAudioBtn, "click", () => {
     const isSoundOn = !State.get("isNotificationSoundOn");
     State.set("isNotificationSoundOn", isSoundOn);

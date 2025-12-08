@@ -16,11 +16,11 @@ class GameManager {
     this.objects = [];
     this.participants = [];
     this.votes = {};
-    this.capZone = { x: 385, y: 400, width: 30, height: 18.5 };
+    this.capZone = { x: 375, y: 200, width: 30, height: 18.5 };
     this.mapSize = 9;
     this.spawnCircle = {
-      x: 400,
-      y: 300,
+      x: 375,
+      y: 250,
       diameter: getSpawnDiameter(this.mapSize),
     };
     this.colors = {
@@ -157,10 +157,34 @@ class GameManager {
   handleObjectCreation(playerId, objectData) {
     if (!this._canPlayerAct(playerId) || !this._allow(playerId, "create", 200))
       return;
-    // Client must specify the type of object to create
     if (!objectData || !objectData.type) return;
 
     const player = this.lobby.players[playerId];
+    // Determine color based on type
+    let objColor = this.colors.none;
+    if (
+      objectData.lineType === "bouncy" ||
+      objectData.circleType === "bouncy" ||
+      objectData.polyType === "bouncy"
+    ) {
+      objColor = this.colors.bouncy;
+    } else if (
+      objectData.lineType === "death" ||
+      objectData.circleType === "death" ||
+      objectData.polyType === "death"
+    ) {
+      objColor = this.colors.death;
+    }
+
+    const baseObj = {
+      id: uuidv4(),
+      playerId,
+      username: player.name,
+      symbol: player.symbol,
+      color: objColor, // <--- ASSIGN COLOR HERE
+      createdAt: Date.now(),
+    };
+
     let newObject = null;
 
     if (objectData.type === "line") {
@@ -174,16 +198,17 @@ class GameManager {
       if (dx * dx + dy * dy < 25) return; // Ignore tiny lines
 
       newObject = {
+        ...baseObj,
         type: "line",
-        id: uuidv4(),
-        playerId,
-        username: player.name,
-        symbol: player.symbol,
         start: objectData.start,
         end: objectData.end,
-        lineType: "none",
+        lineType: objectData.lineType || "none", // Keep type for logic
         height: 4,
-        createdAt: Date.now(),
+        width: Math.hypot(
+          objectData.end.x - objectData.start.x,
+          objectData.end.y - objectData.start.y,
+        ),
+        angle: this._computeAngle(objectData.start, objectData.end),
       };
     } else if (objectData.type === "circle") {
       if (
@@ -193,15 +218,11 @@ class GameManager {
         return;
 
       newObject = {
+        ...baseObj,
         type: "circle",
-        id: uuidv4(),
-        playerId,
-        username: player.name,
-        symbol: player.symbol,
         c: objectData.c,
-        radius: Math.max(1, Math.min(1000, objectData.radius)),
-        circleType: "none",
-        createdAt: Date.now(),
+        radius: objectData.radius,
+        circleType: objectData.circleType || "none",
       };
     }
 
@@ -225,6 +246,10 @@ class GameManager {
     const newObjects = [];
 
     for (const polyData of batchData.objects) {
+      let objColor = this.colors.none;
+      if (polyData.polyType === "bouncy") objColor = this.colors.bouncy;
+      if (polyData.polyType === "death") objColor = this.colors.death;
+
       if (
         polyData &&
         Array.isArray(polyData.v) &&
@@ -234,12 +259,12 @@ class GameManager {
         newObjects.push({
           type: "poly",
           id: uuidv4(),
-          playerId: isAutoGeneration ? " " : playerId,
+          playerId: batchData.isAutoGeneration ? " " : playerId,
           username: player.name,
-          symbol: isAutoGeneration ? " " : player.symbol,
+          symbol: batchData.isAutoGeneration ? " " : player.symbol,
+          color: objColor, // <--- ASSIGN COLOR
           v: polyData.v,
           c: polyData.c,
-          // --- FIX: Use passed-in values or provide defaults ---
           a: polyData.a || 0,
           scale: polyData.scale || 1,
           polyType: polyData.polyType || "none",
@@ -271,6 +296,9 @@ class GameManager {
       !this._allow(playerId, `update:${payload.id}`, 50)
     )
       return;
+
+    // Allow color updates via payload if needed, though usually done via ChangeColors
+    if (payload.color) this.objects[objIndex].color = payload.color;
 
     const objIndex = this.objects.findIndex((o) => o.id === payload.id);
     if (objIndex === -1) return;
@@ -341,8 +369,15 @@ class GameManager {
     if (typeof payload.width === "number") updatedLine.width = payload.width;
     if (typeof payload.height === "number") updatedLine.height = payload.height;
     if (typeof payload.angle === "number") updatedLine.angle = payload.angle;
-    if (typeof payload.lineType === "string")
+    if (typeof payload.lineType === "string") {
       updatedLine.lineType = payload.lineType;
+      // ADD THIS:
+      if (updatedLine.lineType === "bouncy")
+        updatedLine.color = this.colors.bouncy;
+      else if (updatedLine.lineType === "death")
+        updatedLine.color = this.colors.death;
+      else updatedLine.color = this.colors.none;
+    }
 
     // --- Safely clamp values ---
     updatedLine.width = Math.max(1, Math.min(10000, updatedLine.width));
@@ -394,8 +429,16 @@ class GameManager {
     if (payload.angleDelta)
       updatedPoly.a = (updatedPoly.a || 0) + payload.angleDelta;
     if (typeof payload.a === "number") updatedPoly.a = payload.a;
-    if (typeof payload.polyType === "string")
+    // Find this block:
+    if (typeof payload.polyType === "string") {
       updatedPoly.polyType = payload.polyType;
+      // ADD THIS:
+      if (updatedPoly.polyType === "bouncy")
+        updatedPoly.color = this.colors.bouncy;
+      else if (updatedPoly.polyType === "death")
+        updatedPoly.color = this.colors.death;
+      else updatedPoly.color = this.colors.none;
+    }
     updatedPoly.a = (((updatedPoly.a || 0) % 360) + 360) % 360;
 
     if (payload.scaleDelta) {
@@ -451,8 +494,16 @@ class GameManager {
       updatedCircle.radius = (updatedCircle.radius || 0) + payload.radiusDelta;
     if (typeof payload.radius === "number")
       updatedCircle.radius = payload.radius;
-    if (typeof payload.circleType === "string")
+    // Find this block:
+    if (typeof payload.circleType === "string") {
       updatedCircle.circleType = payload.circleType;
+      // ADD THIS:
+      if (updatedCircle.circleType === "bouncy")
+        updatedCircle.color = this.colors.bouncy;
+      else if (updatedCircle.circleType === "death")
+        updatedCircle.color = this.colors.death;
+      else updatedCircle.color = this.colors.none;
+    }
 
     updatedCircle.radius = Math.max(
       1,
@@ -547,14 +598,23 @@ class GameManager {
 
     const player = this.lobby.players[playerId];
     const newObjects = [];
+
+    this.colors = pasteData.colors;
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.COLORS_UPDATED, this.colors),
+    );
+
+    // 2. Create objects using their specific colors from paste data
     for (const objData of pasteData.objects) {
       if (!objData) continue;
+      if (objData.isBgLine) continue; // Don't create BG as an object
 
       const base = {
         id: uuidv4(),
-        playerId: "", // Pasted objects are unowned until edited
+        playerId: "",
         username: player.name,
-        symbol: " ", // Pasted objects have a blank symbol
+        symbol: " ",
+        color: objData.color || this.colors.none, // Use pasted color or fallback
         createdAt: Date.now(),
       };
 
@@ -609,13 +669,6 @@ class GameManager {
       this.objects = newObjects;
 
       let colorsUpdated = false;
-      if (pasteData.colors && typeof pasteData.colors === "object") {
-        const { background, none, bouncy, death } = pasteData.colors;
-        if (background && none && bouncy && death) {
-          this.colors = pasteData.colors;
-          colorsUpdated = true;
-        }
-      }
 
       if (pasteData.mapSize) this.setMapSize(playerId, pasteData.mapSize);
       if (pasteData.spawn && this._validPoint(pasteData.spawn))
@@ -635,17 +688,29 @@ class GameManager {
       });
     }
   }
-  handleChangeColors(playerId) {
-    console.log("Handling color change request from player:", playerId);
-    if (!this._canPlayerAct(playerId)) return;
-    console.log("Player can act, checking allow");
-    if (!this._allow(playerId, "changeColor", 1000)) return;
 
-    console.log("Changing colors. Old colors: ", this.colors);
+  handleChangeColors(playerId) {
+    if (
+      !this._canPlayerAct(playerId) ||
+      !this._allow(playerId, "changeColor", 1000)
+    )
+      return;
+
+    // 1. Generate new scheme
     this.colors = generateNewColorScheme(this.colors);
-    console.log("New colors: ", this.colors);
+
+    // 2. Update ALL existing objects to match the new scheme
+    this.objects.forEach((obj) => {
+      const t = obj.lineType || obj.polyType || obj.circleType || "none";
+      if (t === "bouncy") obj.color = this.colors.bouncy;
+      else if (t === "death") obj.color = this.colors.death;
+      else obj.color = this.colors.none;
+    });
+
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.COLORS_UPDATED, this.colors);
+      // Also emit objects update so clients see the new colors immediately on the specific objects
+      this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
     });
   }
 

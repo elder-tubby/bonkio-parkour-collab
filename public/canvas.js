@@ -19,17 +19,10 @@ function computeAbsoluteVerticesForCanvas(obj) {
 class Canvas {
   static draw() {
     const { canvas, ctx } = UI.elems;
-    const colors = State.get("colors"); // Get current colors
+    const stateColors = State.get("colors"); // Get current colors
 
-    // --- NEW: Visual feedback for path drawing ---
-    const isDrawingPath = State.get("isDrawingPath");
-    if (isDrawingPath) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; // Darken background slightly
-      canvas.style.cursor = "move";
-    } else {
-      ctx.fillStyle = colors.background;
-      canvas.style.cursor = "crosshair";
-    }
+    ctx.fillStyle = stateColors.background;
+    canvas.style.cursor = "crosshair";
 
     // ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -51,6 +44,17 @@ class Canvas {
 
       const isSelected = State.isSelected(obj.id);
 
+      // 1. Determine Color: Use Object Attribute -> Fallback to State -> Fallback to Type
+      let drawColor = obj.color;
+      if (!drawColor) {
+        // Fallback for legacy objects or transient state
+        const t = obj.lineType || obj.polyType || obj.circleType || "none";
+        drawColor = stateColors[t] || "white";
+      }
+
+      ctx.fillStyle = drawColor;
+      ctx.strokeStyle = drawColor; // For lines
+
       if (obj.type === "poly") {
         const { v, c, a, polyType, symbol, scale } = obj;
         ctx.save();
@@ -59,10 +63,6 @@ class Canvas {
         ctx.scale(scale || 1, scale || 1);
         console.log("Scale value in canvas:", scale);
 
-        let baseColor = colors.none;
-        if (polyType === "death") baseColor = colors.death;
-        else if (polyType === "bouncy") baseColor = colors.bouncy;
-        ctx.fillStyle = baseColor;
 
         ctx.beginPath();
         ctx.moveTo(v[0].x, v[0].y);
@@ -94,10 +94,6 @@ class Canvas {
         const isSelected = State.isSelected(obj.id);
 
         ctx.save();
-        let baseColor = colors.none;
-        if (circleType === "death") baseColor = colors.death;
-        else if (circleType === "bouncy") baseColor = colors.bouncy;
-        ctx.fillStyle = baseColor;
 
         ctx.beginPath();
         ctx.arc(c.x, c.y, radius, 0, 2 * Math.PI);
@@ -138,10 +134,6 @@ class Canvas {
 
         const drawEnd = computeEnd({ start, end, width, angle });
 
-        let baseColor = colors.none;
-        if (lineType === "death") baseColor = colors.death;
-        else if (lineType === "bouncy") baseColor = colors.bouncy;
-
         const visualThickness = Math.max(1, Math.round(height ?? 4));
 
         ctx.save();
@@ -155,7 +147,7 @@ class Canvas {
         }
 
         ctx.lineWidth = visualThickness;
-        ctx.strokeStyle = baseColor;
+        ctx.strokeStyle = drawColor;
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(drawEnd.x, drawEnd.y);
@@ -172,25 +164,6 @@ class Canvas {
         ctx.restore();
       }
     });
-
-    // --- Draw Physics Simulation Preview ---
-    const simPreview = State.get("simulationPreview");
-    if (simPreview) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(simPreview.x, simPreview.y, simPreview.radius, 0, 2 * Math.PI);
-
-      // Draw a pulsing/glowing effect
-      const pulse = Math.abs(Math.sin(Date.now() / 200));
-      ctx.fillStyle = `rgba(0, 255, 255, ${0.3 + pulse * 0.3})`; // Cyan fill
-      ctx.fill();
-
-      ctx.strokeStyle = "rgba(0, 255, 255, 0.9)"; // Solid cyan border
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.restore();
-    }
 
     // Draw vertex handles for selec  ted polygons (use draggingPreview objects if present)
     const selectedIds = State.get("selectedObjectIds") || [];
@@ -317,6 +290,25 @@ class Canvas {
           ctx.fill();
         }
       }
+      ctx.restore();
+    }
+
+    // --- Draw Physics Simulation Preview ---
+    const simPreview = State.get("simulationPreview");
+    if (simPreview) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(simPreview.x, simPreview.y, simPreview.radius, 0, 2 * Math.PI);
+
+      // Draw a pulsing/glowing effect
+      const pulse = Math.abs(Math.sin(Date.now() / 200));
+      ctx.fillStyle = `rgba(0, 255, 255, ${0.6 + pulse * 0.3})`; // Cyan fill
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0, 255, 255, 0.9)"; // Solid cyan border
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
       ctx.restore();
     }
 
