@@ -82,7 +82,7 @@ class LobbyManager {
 
   canGameStart() {
     const readyPlayers = this.getReadyPlayers();
-    return readyPlayers.length >= 2;
+    return readyPlayers.length >= 1;
   }
 
   resetReady() {

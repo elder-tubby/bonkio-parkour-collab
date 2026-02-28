@@ -307,7 +307,8 @@ function watchStateChanges() {
       "colors",
       "simulationPreview", // <-- ADD THIS
       "generatedPath", // <--- CRITICAL: Adds real-time path drawing support
-      "isDrawingPath", // <--- Adds support for cursor changes during drawing
+      "isDrawingPath",
+      "zoneIndicator", // <--- Adds support for cursor changes during drawing
     ];
     if (visualKeys.includes(key)) scheduleDraw();
 

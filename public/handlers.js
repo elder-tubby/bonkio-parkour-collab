@@ -17,7 +17,7 @@ import {
   createValidPolygonObject,
   splitConcaveIntoConvex,
   handleGroupRotation,
-  handleGroupScaling
+  handleGroupScaling,
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
 import { generatePlatformerMap } from "./auto-generator-platformer.js";
@@ -26,7 +26,7 @@ import {
   generateRandomPathAndPolygons,
   generatePolygonsFromPathPoints,
 } from "./auto-generator-path.js";
-import { showToast } from "./utils-client.js";
+import { showToast, showToastWithButtons } from "./utils-client.js";
 import { startGame } from "./sim-user-controlled.js";
 import { generateParkourMap } from "./sim-auto-generator.js";
 
@@ -34,6 +34,7 @@ import { generateParkourMap } from "./sim-auto-generator.js";
 let isDraggingObject = false;
 let isDraggingSpawn = false;
 let isDraggingCapZone = false;
+let isDraggingZone = false;
 let isDrawing = false; // Generic flag for line or marquee
 let mouseMovedSinceDown = false;
 let mouseDownTime = 0;
@@ -93,7 +94,17 @@ function handleCanvasDown(e) {
 
   const drawingMode = State.get("drawingMode");
 
-  // quick-hit: spawn / cap zone
+  // quick-hit: spawn / cap zone / zone indicator
+  const zone = State.get("zoneIndicator");
+  if (zone && zone.show) {
+    const spawn = State.get("spawnCircle");
+    const diam = spawn ? spawn.diameter : 18;
+    if (distance(point, zone) < diam / 2 + 5) {
+      isDraggingZone = true;
+      return;
+    }
+  }
+
   const spawn = State.get("spawnCircle");
   if (spawn && distance(point, spawn) < (spawn.diameter || 0) / 2 + 5) {
     isDraggingSpawn = true;
@@ -391,6 +402,13 @@ function handleCanvasMove(e) {
   if (State.get("drawingMode") === "poly" && State.get("drawingShape")) {
     return;
   }
+
+  if (isDraggingZone) {
+    const zone = State.get("zoneIndicator");
+    State.set("zoneIndicator", { ...zone, x: point.x, y: point.y });
+    return;
+  }
+
   if (isDraggingSpawn) {
     const { width, height } = UI.elems.canvas;
     const spawn = State.get("spawnCircle");
@@ -653,6 +671,7 @@ function handleCanvasUp(e) {
   // Final cleanup
   isDraggingObject = false;
   isDraggingSpawn = false;
+  isDraggingZone = false;
   isDraggingCapZone = false;
   isDrawing = false;
   State.set("startPt", null);
@@ -840,12 +859,6 @@ function handleKeyDown(e) {
         State.set("selectedObjectIds", objectIds);
         return;
       }
-    case "z":
-      if (e.metaKey || e.ctrlKey) {
-        e.preventDefault();
-        handleUndoLastObject();
-      }
-      return;
     case "h":
       e.preventDefault();
       const checkbox = UI.elems.hideUsernamesCheckbox;
@@ -907,7 +920,7 @@ function handleKeyDown(e) {
       e.preventDefault();
       // Determine delta (Up = grow, Down = shrink)
       // Limit shrink speed for precision, increase grow speed for utility
-      if (key === "arrowup" && objects.some(o => o.scale >= 10)) return; // Max scale cap
+      if (key === "arrowup" && objects.some((o) => o.scale >= 10)) return; // Max scale cap
 
       const delta = key === "arrowup" ? 0.1 : -0.1;
 
@@ -1216,6 +1229,84 @@ function resetStatusToDefault() {
   UI.setStatus(statusText);
 }
 
+// --- IN handlers.js ---
+
+// --- IN handlers.js ---
+
+export function handleGlobalZoom(zoomFactor) {
+  const objects = State.get("objects");
+  if (!objects || objects.length === 0) return;
+
+  // 1. Calculate centroid
+  let cx = 0,
+    cy = 0,
+    count = 0;
+  objects.forEach((obj) => {
+    if (obj.type === "poly" || obj.type === "circle") {
+      cx += obj.c.x;
+      cy += obj.c.y;
+      count++;
+    } else if (obj.type === "line") {
+      cx += (obj.start.x + obj.end.x) / 2;
+      cy += (obj.start.y + obj.end.y) / 2;
+      count++;
+    }
+  });
+  if (count === 0) return;
+  cx /= count;
+  cy /= count;
+
+  // 2. Prepare local state and batch payload
+  const batchPayloads = [];
+  const updatedObjects = objects.map((o) => {
+    const obj = {
+      ...o,
+      c: o.c ? { ...o.c } : undefined,
+      start: o.start ? { ...o.start } : undefined,
+      end: o.end ? { ...o.end } : undefined,
+    };
+
+    const payload = { id: obj.id };
+
+    if (obj.type === "poly" || obj.type === "circle") {
+      obj.c = {
+        x: cx + (obj.c.x - cx) * zoomFactor,
+        y: cy + (obj.c.y - cy) * zoomFactor,
+      };
+      payload.c = obj.c;
+
+      if (obj.type === "poly") {
+        obj.scale = (obj.scale || 1) * zoomFactor;
+        payload.scale = obj.scale;
+      }
+      if (obj.type === "circle") {
+        obj.radius = (obj.radius || 50) * zoomFactor;
+        payload.radius = obj.radius;
+      }
+    } else if (obj.type === "line") {
+      obj.start = {
+        x: cx + (obj.start.x - cx) * zoomFactor,
+        y: cy + (obj.start.y - cy) * zoomFactor,
+      };
+      obj.end = {
+        x: cx + (obj.end.x - cx) * zoomFactor,
+        y: cy + (obj.end.y - cy) * zoomFactor,
+      };
+      obj.height = (obj.height || 4) * zoomFactor;
+      payload.start = obj.start;
+      payload.end = obj.end;
+      payload.height = obj.height;
+    }
+
+    batchPayloads.push(payload);
+    return obj;
+  });
+
+  // 3. Update locally instantly (prevents rapid-click tearing) and send ONE network request
+  State.set("objects", updatedObjects);
+  Network.updateObjectsBatch(batchPayloads);
+}
+
 export function bindUIEvents() {
   const e = UI.elems;
 
@@ -1460,6 +1551,403 @@ export function bindUIEvents() {
     State.set("isNotificationSoundOn", isSoundOn);
     e.chatAudioBtn.textContent = isSoundOn ? "🔊" : "🔇";
   });
+
+  safeAddEvent(e.btnZoomIn, "click", () => handleGlobalZoom(1.1));
+  safeAddEvent(e.btnZoomOut, "click", () => handleGlobalZoom(0.9));
+
+  /* handlers.js -> bindUIEvents() */
+
+  const toggleMoreOptions = (show) => {
+    if (show) UI.show("moreOptionsPopup");
+    else UI.hide("moreOptionsPopup");
+  };
+
+  // 1. Trigger Click
+  safeAddEvent(e.moreOptionsTrigger, "click", () => toggleMoreOptions(true));
+
+  // 2. Close Button Click
+  safeAddEvent(e.moCloseBtn, "click", () => toggleMoreOptions(false));
+
+  // 3. Click Outside to Close
+  safeAddEvent(e.moreOptionsPopup, "mousedown", (ev) => {
+    if (ev.target === e.moreOptionsPopup) toggleMoreOptions(false);
+  });
+
+  // 4. Escape Key to Close (Add to existing keydown handler or global)
+  window.addEventListener("keydown", (ev) => {
+    if (
+      ev.key === "Escape" &&
+      !e.moreOptionsPopup.classList.contains("hidden")
+    ) {
+      toggleMoreOptions(false);
+    }
+  });
+
+  // 2. Fix Y Slants (Top/Bottom edges)
+  /* Inside handlers.js -> bindUIEvents() -> btnFixY handler */
+  safeAddEvent(e.btnFixY, "click", () => {
+    toggleMoreOptions(false);
+    const objects = State.get("objects");
+    const candidates = [];
+    const fixes = [];
+
+    objects.forEach((obj) => {
+      if (obj.type !== "poly" || !canSelectObject(obj.id)) return;
+      const abs = getAbsoluteVertices(obj); // helper function from utils-client
+      if (abs.length !== 4) return;
+
+      const sortedByY = [...abs].sort((a, b) => a.y - b.y);
+      const topPair = [sortedByY[0], sortedByY[1]].sort((a, b) => a.x - b.x);
+      const bottomPair = [sortedByY[2], sortedByY[3]].sort((a, b) => a.x - b.x);
+
+      let needsFix = false;
+      let newTL = { ...topPair[0] },
+        newTR = { ...topPair[1] };
+      let newBL = { ...bottomPair[0] },
+        newBR = { ...bottomPair[1] };
+
+      const topDiff = Math.abs(newTL.y - newTR.y);
+      if (topDiff > 0.01 && topDiff < 5) {
+        const targetY = Math.max(newTL.y, newTR.y);
+        newTL.y = targetY;
+        newTR.y = targetY;
+        needsFix = true;
+      }
+
+      const botDiff = Math.abs(newBL.y - newBR.y);
+      if (botDiff > 0.01 && botDiff < 5) {
+        const targetY = Math.min(newBL.y, newBR.y);
+        newBL.y = targetY;
+        newBR.y = targetY;
+        needsFix = true;
+      }
+
+      if (needsFix) {
+        candidates.push(obj.id);
+        const fixedAbs = abs.map((v) => {
+          if (v === topPair[0]) return newTL;
+          if (v === topPair[1]) return newTR;
+          if (v === bottomPair[0]) return newBL;
+          if (v === bottomPair[1]) return newBR;
+          return v;
+        });
+        fixes.push({ id: obj.id, fixedAbs, obj });
+      }
+    });
+
+    if (candidates.length > 0) {
+      State.set("selectedObjectIds", candidates);
+      showToastWithButtons("Polygons with slanted top/bottom edges selected.", [
+        {
+          name: "Fix Selected",
+          onClick: () => {
+            const activeIds = State.get("selectedObjectIds");
+            const batch = [];
+            fixes.forEach((f) => {
+              if (activeIds.includes(f.id)) {
+                const validPoly = createValidPolygonObject(
+                  f.fixedAbs,
+                  f.obj.polyType,
+                  f.obj,
+                );
+                if (validPoly) {
+                  batch.push({
+                    id: f.id,
+                    v: validPoly.v,
+                    c: validPoly.c,
+                    a: validPoly.a,
+                    scale: validPoly.scale,
+                  });
+                }
+              }
+            });
+            if (batch.length > 0) {
+              Network.updateObjectsBatch(batch); // CRITICAL: This sends the data to the server
+              showToast(`Fixed ${batch.length} polygons.`);
+            }
+          },
+        },
+      ]);
+    } else {
+      showToast("No Y-slanted polygons found.");
+    }
+  });
+
+  // 3. Fix X Slants (Left/Right edges)
+  safeAddEvent(e.btnFixX, "click", () => {
+    toggleMoreOptions(false);
+    const objects = State.get("objects");
+    const candidates = [];
+    const fixes = [];
+
+    objects.forEach((obj) => {
+      if (obj.type !== "poly" || !canSelectObject(obj.id)) return;
+      const abs = getAbsoluteVertices(obj);
+      if (abs.length !== 4) return;
+
+      const sortedByX = [...abs].sort((a, b) => a.x - b.x);
+      const leftPair = [sortedByX[0], sortedByX[1]].sort((a, b) => a.y - b.y);
+      const rightPair = [sortedByX[2], sortedByX[3]].sort((a, b) => a.y - b.y);
+
+      let needsFix = false;
+      let newTL = { ...leftPair[0] },
+        newBL = { ...leftPair[1] };
+      let newTR = { ...rightPair[0] },
+        newBR = { ...rightPair[1] };
+
+      const leftDiff = Math.abs(newTL.x - newBL.x);
+      if (leftDiff > 0.01 && leftDiff < 2) {
+        const targetX = Math.max(newTL.x, newBL.x);
+        newTL.x = targetX;
+        newBL.x = targetX;
+        needsFix = true;
+      }
+
+      const rightDiff = Math.abs(newTR.x - newBR.x);
+      if (rightDiff > 0.01 && rightDiff < 2) {
+        const targetX = Math.min(newTR.x, newBR.x);
+        newTR.x = targetX;
+        newBR.x = targetX;
+        needsFix = true;
+      }
+
+      if (needsFix) {
+        candidates.push(obj.id);
+        const fixedAbs = abs.map((v) => {
+          if (v === leftPair[0]) return newTL;
+          if (v === leftPair[1]) return newBL;
+          if (v === rightPair[0]) return newTR;
+          if (v === rightPair[1]) return newBR;
+          return v;
+        });
+        fixes.push({ id: obj.id, fixedAbs, obj });
+      }
+    });
+
+    if (candidates.length > 0) {
+      State.set("selectedObjectIds", candidates);
+      showToastWithButtons("Polygons with slanted left/right edges selected.", [
+        {
+          name: "Fix Selected",
+          onClick: () => {
+            const activeIds = State.get("selectedObjectIds");
+            const batch = [];
+            fixes.forEach((f) => {
+              if (activeIds.includes(f.id)) {
+                const validPoly = createValidPolygonObject(
+                  f.fixedAbs,
+                  f.obj.polyType,
+                  f.obj,
+                );
+                if (validPoly) {
+                  batch.push({
+                    id: f.id,
+                    v: validPoly.v,
+                    c: validPoly.c,
+                    a: validPoly.a,
+                    scale: validPoly.scale,
+                  });
+                }
+              }
+            });
+            if (batch.length > 0) {
+              Network.updateObjectsBatch(batch);
+              showToast(`Fixed ${batch.length} polygons.`);
+            }
+          },
+        },
+      ]);
+    } else {
+      showToast("No X-slanted polygons found.");
+    }
+  });
+
+  // 4. Delete Out of Bounds Objects
+  safeAddEvent(e.btnDelOOB, "click", () => {
+    toggleMoreOptions(false);
+    const objects = State.get("objects");
+    const canvas = UI.elems.canvas;
+    const cw = canvas.width || 800;
+    const ch = canvas.height || 600;
+    const candidates = [];
+
+    objects.forEach((obj) => {
+      if (!canSelectObject(obj.id)) return;
+      let isOOB = true;
+      if (obj.type === "poly") {
+        const abs = getAbsoluteVertices(obj);
+        isOOB = abs.every((v) => v.x < 0 || v.x > cw || v.y < 0 || v.y > ch);
+      } else if (obj.type === "line") {
+        const end =
+          typeof obj.width === "number" && typeof obj.angle === "number"
+            ? {
+                x:
+                  obj.start.x +
+                  Math.cos((obj.angle * Math.PI) / 180) * obj.width,
+                y:
+                  obj.start.y +
+                  Math.sin((obj.angle * Math.PI) / 180) * obj.width,
+              }
+            : obj.end;
+        isOOB =
+          (obj.start.x < 0 ||
+            obj.start.x > cw ||
+            obj.start.y < 0 ||
+            obj.start.y > ch) &&
+          (end.x < 0 || end.x > cw || end.y < 0 || end.y > ch);
+      } else if (obj.type === "circle") {
+        isOOB =
+          obj.c.x + obj.radius < 0 ||
+          obj.c.x - obj.radius > cw ||
+          obj.c.y + obj.radius < 0 ||
+          obj.c.y - obj.radius > ch;
+      }
+      if (isOOB) candidates.push(obj.id);
+    });
+
+    if (candidates.length > 0) {
+      State.set("selectedObjectIds", candidates);
+      showToastWithButtons("Out of bounds objects selected.", [
+        {
+          name: "Delete Selected",
+          onClick: () => {
+            const activeIds = State.get("selectedObjectIds");
+            const toDelete = objects.filter((o) => activeIds.includes(o.id));
+            activeIds.forEach((id) => Network.deleteObject(id));
+            State.clearSelectedObjects();
+          },
+        },
+      ]);
+    } else {
+      showToast("No completely out-of-bounds objects found.");
+    }
+  });
+
+  // 5. Merge Convex Polygons
+  safeAddEvent(e.btnMergePolys, "click", () => {
+    toggleMoreOptions(false);
+    const result = window.mergeClosePolygons();
+    if (result && result.success) {
+      showToast(
+        `Successfully merged ${result.mergedCount} polygons into ${result.createdCount} structures.`,
+      );
+    } else {
+      showToast("No exact shared edges found to merge.", true);
+    }
+  });
+  safeAddEvent(document.getElementById("btnAddFrames"), "click", () => {
+    const cw = UI.elems.canvas.width;
+    const ch = UI.elems.canvas.height;
+    const thickness = 200;
+    const stickInside = 10;
+    const offset = thickness / 2 - stickInside; // 90 units outside
+
+    const frames = [
+      // Top Frame
+      {
+        type: "line",
+        start: { x: 0, y: -offset },
+        end: { x: cw, y: -offset },
+        height: thickness,
+      },
+
+      // Bottom Frame
+      {
+        type: "line",
+        start: { x: 0, y: ch + offset },
+        end: { x: cw, y: ch + offset },
+        height: thickness,
+      },
+
+      // Left Frame
+      {
+        type: "line",
+        start: { x: -offset, y: 0 },
+        end: { x: -offset, y: ch },
+        height: thickness,
+      },
+
+      // Right Frame (FIXED)
+      {
+        type: "line",
+        start: { x: cw + offset, y: 0 },
+        end: { x: cw + offset, y: ch },
+        height: thickness,
+      },
+    ];
+
+    Network.createObjectsBatch({ objects: frames, isAutoGeneration: false });
+    showToast("Canvas frames added successfully.");
+    toggleMoreOptions(false);
+  });
+
+  // 2. Lines to Polygons Logic
+  safeAddEvent(document.getElementById("btnLinesToPolys"), "click", () => {
+    const objects = State.get("objects");
+    const linesToConvert = objects.filter(
+      (obj) => obj.type === "line" && canSelectObject(obj.id),
+    );
+
+    if (linesToConvert.length === 0) {
+      showToast("No editable lines found to convert.", true);
+      return;
+    }
+
+    const newPolys = [];
+    const idsToDelete = [];
+
+    linesToConvert.forEach((line) => {
+      const start = line.start;
+      const dx = line.end.x - start.x;
+      const dy = line.end.y - start.y;
+      const len = Math.hypot(dx, dy);
+      const h = (line.height || 4) / 2;
+
+      if (len === 0) return;
+
+      const nx = (-dy / len) * h;
+      const ny = (dx / len) * h;
+
+      const corners = [
+        { x: start.x + nx, y: start.y + ny },
+        { x: start.x - nx, y: start.y - ny },
+        { x: line.end.x - nx, y: line.end.y - ny },
+        { x: line.end.x + nx, y: line.end.y + ny },
+      ];
+
+      const polyObj = createValidPolygonObject(
+        corners,
+        line.lineType || "none",
+        line,
+      );
+
+      if (polyObj) {
+        newPolys.push(polyObj);
+        idsToDelete.push(line.id);
+      }
+    });
+
+    if (newPolys.length > 0) {
+      Network.createObjectsBatch({
+        objects: newPolys,
+        isAutoGeneration: false,
+      });
+      idsToDelete.forEach((id) => Network.deleteObject(id));
+      showToast(`Converted ${newPolys.length} lines to polygons.`);
+    }
+
+    toggleMoreOptions(false);
+  });
+
+  // --- Initialize Zone Indicator State ---
+  if (!State.get("zoneIndicator")) {
+    State.set("zoneIndicator", { x: 300, y: 150, show: false });
+  }
+
+  safeAddEvent(e.cbShowZone, "change", (ev) => {
+    const zone = State.get("zoneIndicator") || { x: 300, y: 150 };
+    State.set("zoneIndicator", { ...zone, show: ev.target.checked });
+  });
 }
 
 function safeAddEvent(elem, eventName, handler) {
@@ -1467,3 +1955,218 @@ function safeAddEvent(elem, eventName, handler) {
     elem.addEventListener(eventName, handler);
   }
 }
+
+// --- IN handlers.js ---
+
+window.mergeClosePolygons = () => {
+  const objects = State.get("objects");
+  let polys = objects.filter((o) => o.type === "poly");
+
+  // --- Math & Geometry Helpers ---
+  function distSq(v1, v2) {
+    return (v1.x - v2.x) ** 2 + (v1.y - v2.y) ** 2;
+  }
+
+  function linesIntersect(p1, p2, p3, p4) {
+    let det = (p2.x - p1.x) * (p4.y - p3.y) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (det === 0) return false;
+    let lambda =
+      ((p4.y - p3.y) * (p4.x - p1.x) + (p3.x - p4.x) * (p4.y - p1.y)) / det;
+    let gamma =
+      ((p1.y - p2.y) * (p4.x - p1.x) + (p2.x - p1.x) * (p4.y - p1.y)) / det;
+    return 0 < lambda && lambda < 1 && 0 < gamma && gamma < 1;
+  }
+
+  function isSelfIntersecting(verts) {
+    for (let i = 0; i < verts.length; i++) {
+      let a1 = verts[i],
+        a2 = verts[(i + 1) % verts.length];
+      for (let j = i + 2; j < verts.length; j++) {
+        if (i === 0 && j === verts.length - 1) continue;
+        let b1 = verts[j],
+          b2 = verts[(j + 1) % verts.length];
+        if (linesIntersect(a1, a2, b1, b2)) return true;
+      }
+    }
+    return false;
+  }
+
+  function isStrictlyConvex(verts) {
+    if (verts.length <= 3) return !isSelfIntersecting(verts);
+    let isPositive = null;
+    for (let i = 0; i < verts.length; i++) {
+      let p0 = verts[i],
+        p1 = verts[(i + 1) % verts.length],
+        p2 = verts[(i + 2) % verts.length];
+      let cross = (p1.x - p0.x) * (p2.y - p1.y) - (p1.y - p0.y) * (p2.x - p1.x);
+      if (Math.abs(cross) < 0.1) continue;
+      if (isPositive === null) isPositive = cross > 0;
+      else if (cross > 0 !== isPositive) return false;
+    }
+    return !isSelfIntersecting(verts);
+  }
+
+  // Removes redundant points on flat walls created by merging
+  function simplify(verts, epsilon = 0.5) {
+    if (verts.length <= 3) return verts;
+    let clean = [];
+    for (let i = 0; i < verts.length; i++) {
+      let prev = verts[(i - 1 + verts.length) % verts.length];
+      let curr = verts[i];
+      let next = verts[(i + 1) % verts.length];
+      let area = Math.abs(
+        (prev.x * (curr.y - next.y) +
+          curr.x * (next.y - prev.y) +
+          next.x * (prev.y - curr.y)) /
+          2,
+      );
+      if (area > epsilon) clean.push(curr);
+    }
+    return clean.length >= 3 ? clean : verts;
+  }
+
+  function getAbsVerts(obj) {
+    const a = obj.a || 0,
+      s = obj.scale || 1,
+      rad = (a * Math.PI) / 180;
+    return (obj.v || []).map((lv) => ({
+      x: obj.c.x + (lv.x * s * Math.cos(rad) - lv.y * s * Math.sin(rad)),
+      y: obj.c.y + (lv.x * s * Math.sin(rad) + lv.y * s * Math.cos(rad)),
+    }));
+  }
+
+  // --- Prepare Data ---
+  let polyData = polys.map((p) => ({
+    id: p.id,
+    polyType: p.polyType,
+    color: p.color,
+    verts: getAbsVerts(p),
+  }));
+
+  let changed = true,
+    iter = 0;
+  let mergedIds = new Set();
+  const TOLERANCE_SQ = 2.0; // Max squared pixel distance to consider vertices overlapping
+
+  while (changed && iter < 200) {
+    changed = false;
+    iter++;
+    for (let i = 0; i < polyData.length; i++) {
+      for (let j = i + 1; j < polyData.length; j++) {
+        let pA = polyData[i],
+          pB = polyData[j];
+        if (pA.polyType !== pB.polyType) continue;
+
+        let mergedVerts = null;
+        let A = pA.verts,
+          B = pB.verts;
+
+        // Search for a shared edge
+        for (let a = 0; a < A.length; a++) {
+          let a1 = A[a],
+            a2 = A[(a + 1) % A.length];
+          for (let b = 0; b < B.length; b++) {
+            let b1 = B[b],
+              b2 = B[(b + 1) % B.length];
+
+            // If edge A goes opposite to edge B, they are a shared wall
+            if (
+              distSq(a1, b2) < TOLERANCE_SQ &&
+              distSq(a2, b1) < TOLERANCE_SQ
+            ) {
+              let stitched = [];
+              let currA = (a + 1) % A.length;
+              while (currA !== a) {
+                stitched.push(A[currA]);
+                currA = (currA + 1) % A.length;
+              }
+              stitched.push(A[a]);
+
+              let currB = (b + 1) % B.length;
+              while (currB !== b) {
+                if (currB !== (b + 1) % B.length) stitched.push(B[currB]);
+                currB = (currB + 1) % B.length;
+              }
+
+              // Strictly enforce convexity and validity before accepting the merge
+              if (isStrictlyConvex(stitched)) {
+                mergedVerts = simplify(stitched);
+              }
+            }
+          }
+          if (mergedVerts) break;
+        }
+
+        if (mergedVerts) {
+          mergedIds.add(pA.id);
+          mergedIds.add(pB.id);
+
+          polyData.splice(j, 1);
+          polyData.splice(i, 1);
+
+          // Recalculate physical center
+          let cx = 0,
+            cy = 0;
+          mergedVerts.forEach((v) => {
+            cx += v.x;
+            cy += v.y;
+          });
+          cx /= mergedVerts.length;
+          cy /= mergedVerts.length;
+
+          let mergedColor =
+            pA.color !== pB.color
+              ? Math.random() > 0.5
+                ? pA.color
+                : pB.color
+              : pA.color;
+
+          let newObj = {
+            type: "poly",
+            c: { x: cx, y: cy },
+            v: mergedVerts.map((v) => ({ x: v.x - cx, y: v.y - cy })),
+            a: 0,
+            scale: 1,
+            polyType: pA.polyType,
+            color: mergedColor,
+          };
+
+          polyData.push({
+            id: "NEW_" + Math.random(),
+            polyType: pA.polyType,
+            color: mergedColor,
+            verts: mergedVerts,
+            objData: newObj,
+          });
+
+          changed = true;
+          break;
+        }
+      }
+      if (changed) break;
+    }
+  }
+
+  // Push updates to network
+  Array.from(mergedIds).forEach((id) => {
+    if (!id.startsWith("NEW_")) Network.deleteObject(id);
+  });
+
+  const finalCreates = polyData
+    .filter((p) => p.id.startsWith("NEW_"))
+    .map((p) => p.objData);
+
+  if (finalCreates.length > 0) {
+    Network.createObjectsBatch({
+      objects: finalCreates,
+      isAutoGeneration: true,
+    });
+    return {
+      success: true,
+      mergedCount: mergedIds.size,
+      createdCount: finalCreates.length,
+    };
+  } else {
+    return { success: false };
+  }
+};

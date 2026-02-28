@@ -1978,7 +1978,9 @@ export function handleGroupScaling(selectedObjects, scaleDelta) {
         c: newCenter,
       });
     }
-    // Note: Circles use 'radius', requiring different delta logic. 
+    // Note: Circles use 'radius', requiring different delta logic.
     // Lines use 'width/height'. This block protects them from corruption.
   });
 }
+
+// --- IN utils-client.js or handlers.js ---

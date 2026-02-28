@@ -21,6 +21,7 @@ module.exports = {
     CHAT_ERROR: "chatError",
     OBJECT_CREATED: "objectCreated", // Replaces LINE_CREATED
     OBJECTS_CREATED_BATCH: "objectsCreatedBatch", // Replaces POLYGONS_CREATED_BATCH
+    UPDATE_OBJECTS_BATCH: "updateObjectsBatch",
     OBJECT_UPDATED: "objectUpdated", // Replaces LINE_UPDATED, POLYGON_UPDATED
     OBJECT_DELETED: "objectDeleted", // Replaces LINE_DELETED, POLYGON_DELETED
     OBJECTS_REORDERED: "objectsReordered",

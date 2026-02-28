@@ -77,6 +77,9 @@ io.on("connection", (socket) => {
   socket.on(EVENTS.UPDATE_OBJECT, (updateData) =>
     game.handleObjectUpdate(socket.id, updateData),
   );
+  socket.on(EVENTS.UPDATE_OBJECTS_BATCH, (updateData) =>
+    game.handleObjectsUpdateBatch(socket.id, updateData)
+  );
   socket.on(EVENTS.DELETE_OBJECT, (objectId) =>
     game.handleObjectDeletion(socket.id, objectId),
   );

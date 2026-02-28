@@ -39,7 +39,6 @@ export function copyLineInfo() {
     isFloor: true,
   });
 
-
   // line id counter (starts at 2 so first exported line gets id = 2)
   let nextObjId = 1;
 
@@ -48,28 +47,28 @@ export function copyLineInfo() {
     if (!obj) continue;
 
     // POLYGON -> export as poly (preserve original mapping logic)
-      if (obj.type === "poly") {
-        const c = obj.c || {};
-        const v = Array.isArray(obj.v) ? obj.v : [];
-        const a = typeof obj.a === "number" ? obj.a : 0;
-        const sc = typeof obj.scale === "number" ? obj.scale : 1;
-        const polyType = obj.polyType || "normal";
+    if (obj.type === "poly") {
+      const c = obj.c || {};
+      const v = Array.isArray(obj.v) ? obj.v : [];
+      const a = typeof obj.a === "number" ? obj.a : 0;
+      const sc = typeof obj.scale === "number" ? obj.scale : 1;
+      const polyType = obj.polyType || "normal";
 
-        const centerExternal = gameToExternal(c.x || 0, c.y || 0);
+      const centerExternal = gameToExternal(c.x || 0, c.y || 0);
 
-        // Map to external coordinates first
-        let externalVertices = v.map(function (p) {
-          return {
-            x: p && typeof p.x === "number" ? p.x : 0,
-            y: p && typeof p.y === "number" ? p.y : 0,
-          };
-        });
+      // Map to external coordinates first
+      let externalVertices = v.map(function (p) {
+        return {
+          x: p && typeof p.x === "number" ? p.x : 0,
+          y: p && typeof p.y === "number" ? p.y : 0,
+        };
+      });
 
-        // Apply Clockwise enforcement
-        externalVertices = ensureClockwise(externalVertices);
+      // Apply Clockwise enforcement
+      externalVertices = ensureClockwise(externalVertices);
 
-        let isBouncy = false;
-        let isDeath = false;
+      let isBouncy = false;
+      let isDeath = false;
       let colorDecimal = rgbToDecimal(obj.color || stateColors.none); // Use object attribute
       if (polyType === "bouncy") {
         isBouncy = true;
@@ -302,6 +301,49 @@ export function copyLineInfo() {
 
   exportedObjects.push(capZoneLine);
 
+  // --- Export Zone Indicator as overlapping circles ---
+  const zone = State.get("zoneIndicator");
+  if (zone && zone.show) {
+    const mapSize = State.get("mapSize") || 9;
+    const diameterGame = getSpawnDiameter(mapSize);
+    const radiusGame = diameterGame / 2;
+    const scaleAvg = (scaleX + scaleY) / 2;
+
+    const centerExternal = gameToExternal(zone.x, zone.y);
+    const radiusExternal = radiusGame * scaleAvg;
+
+    // Outer Circle (The shape)
+    exportedObjects.push({
+      id: nextObjId++,
+      type: "circle",
+      color: rgbToDecimal(stateColors.none),
+      x: centerExternal.x,
+      y: centerExternal.y,
+      radius: radiusExternal,
+      isBouncy: false,
+      isDeath: false,
+      isBgLine: false,
+      noPhysics: true, // Flag to skip physics
+      isZoneIndicator: true,
+    });
+
+    // Inner Circle (Background filler to look hollow - decrease diameter by 2 means radius - 1)
+    const innerRadiusExternal = Math.max(0.1, (radiusGame - 1) * scaleAvg);
+    exportedObjects.push({
+      id: nextObjId++,
+      type: "circle",
+      color: rgbToDecimal(stateColors.background), // Inner background color
+      x: centerExternal.x,
+      y: centerExternal.y,
+      radius: innerRadiusExternal,
+      isBouncy: false,
+      isDeath: false,
+      isBgLine: false,
+      noPhysics: true,
+      isZoneIndicator: true,
+    });
+  }
+
   const spawnExternal = gameToExternal(spawn.x, spawn.y);
   const mapSize = State.get("mapSize");
 
@@ -444,10 +486,17 @@ export async function pasteLines() {
   const importedObjects = [];
 
   let capZoneData = null;
+  let zoneIndicatorData = null;
 
   for (const obj of objectList) {
     // Use the determined objectList
     if (!obj) continue;
+
+    if (obj.isZoneIndicator) {
+      zoneIndicatorData = obj; // Saves x and y (both circles have the same center)
+      continue; // Skip turning this into an actual canvas object
+    }
+
     // --- NEW: Skip objects if noPhysics is true (unless it's the background) ---
     if (obj.noPhysics === true && !obj.isBgLine) {
       continue; // Ignore this object
@@ -598,6 +647,22 @@ export async function pasteLines() {
     }
   }
 
+  if (zoneIndicatorData) {
+    const ziGame = externalToGame(zoneIndicatorData.x, zoneIndicatorData.y);
+
+    // Validate bounds
+    if (ziGame.x >= 0 && ziGame.x <= GW && ziGame.y >= 0 && ziGame.y <= GH) {
+      const currentZone = State.get("zoneIndicator") || { show: false };
+      State.set("zoneIndicator", {
+        ...currentZone, // Preserve whether it is currently hidden or shown
+        x: ziGame.x,
+        y: ziGame.y,
+      });
+    } else {
+      console.warn("Pasted zone indicator is outside canvas bounds. Ignoring.");
+    }
+  }
+
   const mapSize = data.mapSize ?? State.get("mapSize");
 
   const payload = {
@@ -612,11 +677,11 @@ export async function pasteLines() {
 }
 
 function recursiveRound(obj) {
-  if (typeof obj !== 'object' || obj === null) return;
+  if (typeof obj !== "object" || obj === null) return;
   for (const key in obj) {
-    if (typeof obj[key] === 'number') {
+    if (typeof obj[key] === "number") {
       obj[key] = parseFloat(obj[key].toFixed(3));
-    } else if (typeof obj[key] === 'object') {
+    } else if (typeof obj[key] === "object") {
       recursiveRound(obj[key]);
     }
   }

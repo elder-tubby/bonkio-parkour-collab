@@ -39,7 +39,7 @@ const SELECTORS = {
   agpMinArea: "#agpMinArea",
   agpMaxArea: "#agpMaxArea",
   agpSkipChance: "#agpSkipChance",
-  agpTunnelPadding: "#agpTunnelPadding", 
+  agpTunnelPadding: "#agpTunnelPadding",
   agpWeightNone: "#agpWeightNone",
   agpWeightBouncy: "#agpWeightBouncy",
   agpWeightDeath: "#agpWeightDeath",
@@ -57,7 +57,7 @@ class UI {
     this.elems = {};
   }
 
-  init() {
+    init() {
     for (const key in SELECTORS) {
       this.elems[key] = document.querySelector(SELECTORS[key]);
     }
@@ -65,8 +65,35 @@ class UI {
       this.elems.ctx = this.elems.canvas.getContext("2d");
     }
 
+    // --- Dynamic Popup Creation ---
+    const moreOptionsPopup = document.createElement("div");
+    moreOptionsPopup.id = "moreOptionsPopup";
+    moreOptionsPopup.className = "popup-overlay hidden";
+    moreOptionsPopup.innerHTML = `
+        <div class="popup-box" style="width: 300px;">
+            <button class="popup-close" id="moCloseBtn">✕</button>
+            <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: #ccc;">More Options</h3>
+            <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="cbShowZone" style="cursor: pointer;">
+                <label for="cbShowZone" style="font-size: 12px; color: #ccc; cursor: pointer;">Show zone indicator</label>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="btnFixY" class="btn" style="font-size: 12px;">Remove Y Slants (Top/Bottom)</button>
+                <button id="btnFixX" class="btn" style="font-size: 12px;">Remove X Slants (Left/Right)</button>
+                <button id="btnAddFrames" class="btn" style="font-size: 12px;">Add Frames</button>
+                <button id="btnLinesToPolys" class="btn" style="font-size: 12px;">Lines to Polygons</button>
+                <button id="btnDelOOB" class="btn" style="font-size: 12px;">Delete Out of Bounds</button>
+                <button id="btnMergePolys" class="btn" style="font-size: 12px;">Merge Convex Polys</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(moreOptionsPopup);
+
+    this.elems.moreOptionsPopup = moreOptionsPopup;
+    this.elems.moCloseBtn = moreOptionsPopup.querySelector("#moCloseBtn");
+
     this._createUnifiedObjectEditor();
-    this.setObjectEditorVisible([]); // Set initial state
+    this.setObjectEditorVisible([]);
 
     // tooltip
     const tooltip = document.createElement("div");
@@ -126,20 +153,29 @@ class UI {
     controlBox.appendChild(status);
     this.elems.statusText = status;
 
-    // -- NEW: Color Indicators --
+    /// --- IN ui.js, inside _createUnifiedObjectEditor() ---
+    // Replace the colorIndicators block with this:
+
     const colorIndicators = document.createElement("div");
     colorIndicators.id = "colorIndicators";
     colorIndicators.className = "color-indicators-container";
     colorIndicators.innerHTML = `
-      <div class="color-indicator">
-        <span id="colorIndicator-none" class="color-square"></span> Normal
-      </div>
-      <div class="color-indicator">
-        <span id="colorIndicator-bouncy" class="color-square"></span> Bouncy
-      </div>
-      <div class="color-indicator">
-        <span id="colorIndicator-death" class="color-square"></span> Death
-      </div>
+        <div style="display:flex; align-items:center; gap: 6px; margin-right: 20px; border-right: 1px solid #444; padding-right: 15px;">
+          <span style="font-size: 11px; font-weight: bold; letter-spacing: 1px; color: #ccc;">ZOOM</span>
+          <button id="btnZoomOut" class="btn" style="padding: 2px 8px; font-size: 14px; min-width: 28px;">-</button>
+          <button id="btnZoomIn" class="btn" style="padding: 2px 8px; font-size: 14px; min-width: 28px;">+</button>
+        </div>
+        <div class="color-indicator">
+          <span id="colorIndicator-none" class="color-square"></span> Normal
+        </div>
+        <div class="color-indicator">
+          <span id="colorIndicator-bouncy" class="color-square"></span> Bouncy
+        </div>
+        <div class="color-indicator">
+          <span id="colorIndicator-death" class="color-square"></span> Death
+        </div>
+
+        <button id="moreOptionsTrigger" class="btn" style="font-size: 10px; margin-left: 15px; padding: 4px 10px; border: 1px solid #444;">MORE OPTIONS</button>
     `;
     controlBox.appendChild(colorIndicators);
 
@@ -285,7 +321,7 @@ class UI {
     return (propName, type) => {
       const uiProp = propName === "a" ? "angle" : propName;
       const capitalized = uiProp.charAt(0).toUpperCase() + uiProp.slice(1);
-      const prefix = `${type}${capitalized}`; 
+      const prefix = `${type}${capitalized}`;
       const sliderKey = `${prefix}Slider`;
       const valueKey = `${prefix}Value`;
 
@@ -307,21 +343,21 @@ class UI {
         // Update Local State Immediately
         const objects = State.get("objects");
         let changed = false;
-        objects.forEach(obj => {
+        objects.forEach((obj) => {
           if (selectedIds.includes(obj.id) && obj.type === type) {
-              // Update the specific property
-              if (propName === 'a') obj.a = parsed;
-              else if (propName === 'angle') obj.angle = parsed;
-              else if (propName === 'width') obj.width = parsed;
-              else if (propName === 'height') obj.height = parsed;
-              else if (propName === 'scale') obj.scale = parsed;
-              else if (propName === 'radius') obj.radius = parsed;
-              changed = true;
+            // Update the specific property
+            if (propName === "a") obj.a = parsed;
+            else if (propName === "angle") obj.angle = parsed;
+            else if (propName === "width") obj.width = parsed;
+            else if (propName === "height") obj.height = parsed;
+            else if (propName === "scale") obj.scale = parsed;
+            else if (propName === "radius") obj.radius = parsed;
+            changed = true;
           }
         });
 
         if (changed) {
-            State.set("objects", objects); // Trigger canvas redraw
+          State.set("objects", objects); // Trigger canvas redraw
         }
       };
 
@@ -346,7 +382,7 @@ class UI {
       slider.addEventListener("change", handleChange);
     };
   }
-  
+
   setObjectEditorVisible(selectedObjects) {
     const count = Array.isArray(selectedObjects) ? selectedObjects.length : 0;
     const controlBox = this.elems.controlBox;
@@ -670,9 +706,24 @@ class UI {
       "polyScaleValue",
       "circleRadiusSlider",
       "circleRadiusValue",
+      "btnZoomIn",
+      "btnZoomOut",
+      "moreOptionsMenuContainer",
+      "moreOptionsTrigger", // <-- ADD THESE
+      "btnFixY",
+      "btnFixX",
+      "btnDelOOB",
+      "btnMergePolys",
+      "btnAddFrames",
+      "btnLinesToPolys",
+      "cbShowZone"
     ];
+    // dynamicIds.forEach((id) => {
+    //   this.elems[id] = this.elems.controlBox.querySelector(`#${id}`);
+    // });
+
     dynamicIds.forEach((id) => {
-      this.elems[id] = this.elems.controlBox.querySelector(`#${id}`);
+      this.elems[id] = document.getElementById(id);
     });
     // Alias status for consistency
     this.elems.statusText = this.elems.status;

@@ -63,7 +63,6 @@ class Canvas {
         ctx.scale(scale || 1, scale || 1);
         console.log("Scale value in canvas:", scale);
 
-
         ctx.beginPath();
         ctx.moveTo(v[0].x, v[0].y);
         for (let i = 1; i < v.length; i++) {
@@ -460,6 +459,39 @@ class Canvas {
 
       ctx.fillStyle = "yellow";
       ctx.fillText("CZ", textX, textY);
+
+      ctx.restore();
+    }
+
+    // --- Draw Zone Indicator (Topmost) ---
+    const zoneIndicator = State.get("zoneIndicator");
+    if (zoneIndicator && zoneIndicator.show) {
+      const spawnCircle = State.get("spawnCircle");
+      const { x, y } = zoneIndicator;
+      const diameter = spawnCircle ? spawnCircle.diameter : 18;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, diameter / 2, 0, 2 * Math.PI);
+
+      // Thinner, dashed, less obvious than spawn circle
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 2]);
+      ctx.stroke();
+
+      // Text label
+      ctx.font = "9px Lexend";
+      ctx.textAlign = "center";
+      const textY = y + diameter / 2 + 12;
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round";
+      ctx.strokeText("zone", x, textY);
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.fillText("zone", x, textY);
 
       ctx.restore();
     }

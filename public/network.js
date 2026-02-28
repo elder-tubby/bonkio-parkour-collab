@@ -26,6 +26,10 @@ export function createObjectsBatch(batchData) {
   socket.emit(EVENTS.CREATE_OBJECTS_BATCH, batchData);
 }
 
+export function updateObjectsBatch(payloads) {
+  socket.emit(EVENTS.UPDATE_OBJECTS_BATCH, payloads); // Make sure you add this to your EVENTS config
+}
+
 export function deleteObject(objectId) {
   socket.emit(EVENTS.DELETE_OBJECT, objectId);
 }

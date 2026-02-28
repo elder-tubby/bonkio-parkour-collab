@@ -3,7 +3,14 @@
  */
 const { v4: uuidv4 } = require("uuid");
 const { EVENTS } = require("./config");
-const { getSpawnDiameter, generateNewColorScheme } = require("./utils");
+const {
+  getSpawnDiameter,
+  generateNewColorScheme,
+  getDistinctColor,
+  hslToRgbStr,
+  getShade,
+  generateBeautifulColorScheme,
+} = require("./utils");
 
 class GameManager {
   constructor(io, lobby) {
@@ -38,7 +45,7 @@ class GameManager {
     this.participants = Object.keys(this.lobby.players).filter(
       (id) => this.lobby.players[id]?.ready,
     );
-    if (this.participants.length < 2) {
+    if (this.participants.length < 1) {
       this.active = false;
       return;
     }
@@ -92,7 +99,7 @@ class GameManager {
     this.participants = this.participants.filter((id) => id !== playerId);
     delete this.votes[playerId];
 
-    if (this.participants.length < 2 && this.active) {
+    if (this.participants.length < 1 && this.active) {
       this.endGame("player_left");
     } else {
       this.broadcastGameState();
@@ -233,7 +240,8 @@ class GameManager {
       });
     }
   }
-  // In gameManager.js, modify the handleObjectsCreationBatch method:
+  // --- IN gameManager.js ---
+
   handleObjectsCreationBatch(playerId, batchData) {
     if (
       !this._canPlayerAct(playerId) ||
@@ -241,35 +249,75 @@ class GameManager {
     )
       return;
     if (!batchData || !Array.isArray(batchData.objects)) return;
-    const isAutoGeneration = batchData.isAutoGeneration === true;
+
     const player = this.lobby.players[playerId];
     const newObjects = [];
 
-    for (const polyData of batchData.objects) {
-      let objColor = this.colors.none;
-      if (polyData.polyType === "bouncy") objColor = this.colors.bouncy;
-      if (polyData.polyType === "death") objColor = this.colors.death;
+    for (const objData of batchData.objects) {
+      if (!objData || !objData.type) continue;
 
-      if (
-        polyData &&
-        Array.isArray(polyData.v) &&
-        polyData.v.length >= 3 &&
-        this._validPoint(polyData.c)
-      ) {
-        newObjects.push({
-          type: "poly",
-          id: uuidv4(),
-          playerId: batchData.isAutoGeneration ? " " : playerId,
-          username: player.name,
-          symbol: batchData.isAutoGeneration ? " " : player.symbol,
-          color: objColor, // <--- ASSIGN COLOR
-          v: polyData.v,
-          c: polyData.c,
-          a: polyData.a || 0,
-          scale: polyData.scale || 1,
-          polyType: polyData.polyType || "none",
-          createdAt: Date.now(),
-        });
+      // Determine color based on the object's specific type (lineType, polyType, etc.)
+      let objColor = objData.color || this.colors.none;
+      const subType =
+        objData.lineType || objData.polyType || objData.circleType || "none";
+      if (subType === "bouncy") objColor = this.colors.bouncy;
+      if (subType === "death") objColor = this.colors.death;
+
+      const baseObj = {
+        id: uuidv4(),
+        playerId: batchData.isAutoGeneration ? " " : playerId,
+        username: player.name,
+        symbol: batchData.isAutoGeneration ? " " : player.symbol,
+        color: objColor,
+        createdAt: Date.now(),
+      };
+
+      if (objData.type === "poly") {
+        if (
+          Array.isArray(objData.v) &&
+          objData.v.length >= 3 &&
+          this._validPoint(objData.c)
+        ) {
+          newObjects.push({
+            ...baseObj,
+            type: "poly",
+            v: objData.v,
+            c: objData.c,
+            a: objData.a || 0,
+            scale: objData.scale || 1,
+            polyType: objData.polyType || "none",
+          });
+        }
+      } else if (objData.type === "line") {
+        if (this._validPoint(objData.start) && this._validPoint(objData.end)) {
+          newObjects.push({
+            ...baseObj,
+            type: "line",
+            start: objData.start,
+            end: objData.end,
+            lineType: objData.lineType || "none",
+            height: objData.height || 4,
+            width: Math.hypot(
+              objData.end.x - objData.start.x,
+              objData.end.y - objData.start.y,
+            ),
+            angle: this._computeAngle(objData.start, objData.end),
+          });
+        }
+      } else if (objData.type === "circle") {
+        if (
+          this._validPoint(objData.c) &&
+          typeof objData.radius === "number" &&
+          objData.radius > 0
+        ) {
+          newObjects.push({
+            ...baseObj,
+            type: "circle",
+            c: objData.c,
+            radius: objData.radius,
+            circleType: objData.circleType || "none",
+          });
+        }
       }
     }
 
@@ -279,6 +327,34 @@ class GameManager {
         this.io.to(id).emit(EVENTS.OBJECTS_CREATED_BATCH, newObjects);
       });
     }
+  }
+
+  // Add this new handler in GameManager
+  handleObjectsUpdateBatch(playerId, payloads) {
+    if (
+      !this._canPlayerAct(playerId) ||
+      !this._allow(playerId, "updateBatch", 100)
+    )
+      return;
+    if (!Array.isArray(payloads)) return;
+
+    payloads.forEach((payload) => {
+      if (!this._canModifyObject(playerId, payload.id)) return;
+
+      const objIndex = this.objects.findIndex((o) => o.id === payload.id);
+      if (objIndex === -1) return;
+      const object = this.objects[objIndex];
+
+      // Route to your existing update logic
+      if (object.type === "line") this._updateLine(object, payload);
+      else if (object.type === "poly") this._updatePolygon(object, payload);
+      else if (object.type === "circle") this._updateCircle(object, payload);
+    });
+
+    // Broadcast the entire state once instead of per-object
+    this.participants.forEach((id) =>
+      this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects),
+    );
   }
 
   handleObjectDeletion(playerId, objectId) {
@@ -689,6 +765,10 @@ class GameManager {
     }
   }
 
+  // --- IN gameManager.js (Inside GameManager Class) ---
+
+  // --- IN gameManager.js (Inside GameManager Class) ---
+
   handleChangeColors(playerId) {
     if (
       !this._canPlayerAct(playerId) ||
@@ -696,24 +776,75 @@ class GameManager {
     )
       return;
 
-    // 1. Generate new scheme
-    this.colors = generateNewColorScheme(this.colors);
+    // 1. Fully Procedural Background (No more hardcoded B/W spam)
+    const bgH = Math.random() * 360;
+    const bgS = 10 + Math.random() * 30; // Calm saturation for BG
+    const isDarkBg = Math.random() > 0.5;
+    const bgL = isDarkBg ? 5 + Math.random() * 15 : 85 + Math.random() * 10;
+    this.colors.background = hslToRgbStr(bgH, bgS, bgL);
 
-    // 2. Update ALL existing objects to match the new scheme
+    // 2. Select Style Pattern
+    // Pattern 0: The requested Strict Monochromatic (1 hue, Death is exact dark shade, Normal is lighter)
+    // Pattern 1: Rainbow Normals (Distinct hues for normal, solid complementary for hazards)
+    // Pattern 2: Tri-Color Shaded (3 distinct unique hues, all instances get shading variations)
+    const pattern = Math.floor(Math.random() * 3);
+    const baseHue = Math.random() * 360; // Decoupled: Death can now be any hue
+
+    // Set UI base colors
+    if (pattern === 0) {
+      this.colors.death = hslToRgbStr(baseHue, 60, 10); // Very dark, exact shade
+      this.colors.bouncy = hslToRgbStr(baseHue, 90, 60); // Bright highlight
+      this.colors.none = hslToRgbStr(baseHue, 50, 50); // Base normal
+    } else {
+      const bounceHue = (baseHue + 60 + Math.random() * 60) % 360;
+      const deathHue = (baseHue + 180 + Math.random() * 60) % 360;
+      const fgL = isDarkBg ? 65 : 35; // Contrast against BG
+      this.colors.none = hslToRgbStr(baseHue, 50, fgL);
+      this.colors.bouncy = hslToRgbStr(bounceHue, 75, fgL);
+      this.colors.death = hslToRgbStr(deathHue, 75, fgL);
+    }
+
+    let distinctIndex = 0;
+
+    // 3. Apply to objects
     this.objects.forEach((obj) => {
       const t = obj.lineType || obj.polyType || obj.circleType || "none";
-      if (t === "bouncy") obj.color = this.colors.bouncy;
-      else if (t === "death") obj.color = this.colors.death;
-      else obj.color = this.colors.none;
+
+      if (pattern === 0) {
+        // Strict Monochromatic Application
+        if (t === "death")
+          obj.color = this.colors.death; // Strict exact dark shade
+        else if (t === "bouncy") obj.color = this.colors.bouncy;
+        else {
+          // Normal gets lighter distinct shades of the global hue
+          const shadeL = 30 + Math.random() * 50; // Between 30% and 80% lightness
+          const shadeS = 40 + Math.random() * 30;
+          obj.color = hslToRgbStr(baseHue, shadeS, shadeL);
+        }
+      } else if (pattern === 1) {
+        // Rainbow Normals Application
+        if (t === "death") obj.color = this.colors.death;
+        else if (t === "bouncy") obj.color = this.colors.bouncy;
+        else obj.color = getDistinctColor(distinctIndex++, isDarkBg);
+      } else if (pattern === 2) {
+        // Tri-Color Shaded Application
+        let baseColorStr = this.colors.none;
+        if (t === "bouncy") baseColorStr = this.colors.bouncy;
+        if (t === "death") baseColorStr = this.colors.death;
+        obj.color = getShade(baseColorStr, 35);
+      }
+
+      // Safety net to definitively prevent `color: 0` mapping errors
+      if (!obj.color || typeof obj.color !== "string" || obj.color.length < 5) {
+        obj.color = "rgb(255,255,255)";
+      }
     });
 
     this.participants.forEach((id) => {
       this.io.to(id).emit(EVENTS.COLORS_UPDATED, this.colors);
-      // Also emit objects update so clients see the new colors immediately on the specific objects
       this.io.to(id).emit(EVENTS.OBJECTS_REORDERED, this.objects);
     });
   }
-
   // --- Helpers & Validation ---
   _allow(playerId, actionKey, minMs = 50) {
     const key = `${playerId}:${actionKey}`;
