@@ -20,15 +20,8 @@ import {
   handleGroupScaling,
 } from "./utils-client.js";
 import { copyLineInfo, pasteLines } from "./copyPasteLines.js";
-import { generatePlatformerMap } from "./auto-generator-platformer.js";
-import {
-  startPathDrawing,
-  generateRandomPathAndPolygons,
-  generatePolygonsFromPathPoints,
-} from "./auto-generator-path.js";
 import { showToast, showToastWithButtons } from "./utils-client.js";
 import { startGame } from "./sim-user-controlled.js";
-import { generateParkourMap } from "./sim-auto-generator.js";
 
 // --- State Flags for Mouse Actions ---
 let isDraggingObject = false;
@@ -1455,94 +1448,39 @@ export function bindUIEvents() {
 
   // --- AUTO GENERATE POPUP HANDLERS ---
 
+  // --- POPUP HANDLERS ---
   safeAddEvent(e.agpCloseBtn, "click", () => UI.hide("autoGeneratePopup"));
-
-  // Close popup if user clicks outside
   safeAddEvent(e.autoGeneratePopup, "click", (ev) => {
-    if (ev.target === e.autoGeneratePopup) {
-      UI.hide("autoGeneratePopup");
-    }
+    if (ev.target === e.autoGeneratePopup) UI.hide("autoGeneratePopup");
   });
 
-  // 3.3 NEW: Generate Random Shapes (Platformer)
-  safeAddEvent(e.agpPlatformerBtn, "click", () => {
-    if (State.get("objects").length > 0) {
-      showToast("Clear the map before auto-generating!", true);
-      return;
-    }
-    const options = UI.getGenerationOptions();
-    try {
-      const newPolygons = generatePlatformerMap(options);
-      handleGeneratedPolygons(newPolygons);
-      UI.hide("autoGeneratePopup");
-    } catch (err) {
-      console.error("Platformer generation error:", err);
-      showToast("Generation failed.", true);
-    }
-  });
-
-  // 3.2 NEW: Generate map from random simulation (AI Map)
-  safeAddEvent(e.agpAiMapBtn, "click", () => {
-    console.log("Starting AI Map Generation...");
-    const options = UI.getGenerationOptions();
-    UI.hide("autoGeneratePopup");
-    generateParkourMap(options);
-  });
-
-  // 3.1 NEW: Start user controlled-simulation (AI Sim)
   safeAddEvent(e.agpAiSimBtn, "click", () => {
-    console.log("Starting AI Simulation...");
-    const options = UI.getGenerationOptions();
+    console.log("Starting Simulation...");
     UI.hide("autoGeneratePopup");
-    startGame(options);
+    startGame();
   });
 
-  // Replace the entire form submit handler with this:
-  safeAddEvent(e.agpForm, "submit", (ev) => {
-    ev.preventDefault();
-    const submitter = ev.submitter;
+  // Toggle Continuous Drawing Tool
+  let isDrawingToolActive = false;
+  safeAddEvent(e.agpDrawBtn, "click", () => {
+    isDrawingToolActive = !isDrawingToolActive;
+    e.agpDrawBtn.textContent = `Toggle Drawing: ${isDrawingToolActive ? "ON" : "OFF"}`;
+    e.agpDrawBtn.style.backgroundColor = isDrawingToolActive ? "#28a745" : "";
 
-    if (State.get("objects").length > 0) {
-      showToast("Clear the map before auto-generating!", true);
-      return;
-    }
-    State.set("generatedPath", null);
-    const options = UI.getGenerationOptions();
-    window._tempGenOptions = options;
-    UI.hide("autoGeneratePopup");
-
-    if (submitter && submitter.id === "agpRandomRouteBtn") {
-      // Random Path (Path generated internally, polygons returned)
-      const newPolygons = generateRandomPathAndPolygons(options);
-      handleGeneratedPolygons(newPolygons);
-      delete window._tempGenOptions;
-      resetStatusToDefault();
+    if (isDrawingToolActive) {
+      import("./drawing-tool.js").then((module) => {
+        const thickness = parseInt(e.agpThickness.value, 10) || 20;
+        module.enableDrawingTool(thickness);
+      });
+      UI.hide("autoGeneratePopup");
+      UI.setStatus(
+        "Continuous Drawing ON. Click and drag to paint polygons. Press Esc to stop.",
+      );
     } else {
-      // Custom Path (User Draw)
-      startPathDrawing(options)
-        .then((pathPoints) => {
-          // Now receives the raw path points
-          // 1. Generate Ribbon Polygons from the drawn path points
-          const newPolygons = generatePolygonsFromPathPoints(
-            pathPoints,
-            options,
-          );
-
-          // 2. Handle the results
-          handleGeneratedPolygons(newPolygons);
-
-          // 3. Clear the path visual (startPathDrawing leaves it up)
-          State.set("generatedPath", null);
-        })
-        .catch((err) => {
-          console.error("Path drawing failed:", err);
-          showToast(err.message || "Path drawing cancelled.", true);
-          State.set("generatedPath", null); // Clear visual path on error/cancel
-        })
-        .finally(() => {
-          delete window._tempGenOptions;
-          resetStatusToDefault();
-        });
+      import("./drawing-tool.js").then((module) => {
+        module.disableDrawingTool();
+      });
+      UI.setStatus("Continuous Drawing OFF.");
     }
   });
 

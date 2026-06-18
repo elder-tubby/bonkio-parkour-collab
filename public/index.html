@@ -212,137 +212,25 @@
       </div>
     </div>
 
-    <div
-      id="autoGeneratePopup"
-      class="popup-overlay hidden"
-      aria-hidden="true"
-    >
+    <div id="autoGeneratePopup" class="popup-overlay hidden" aria-hidden="true">
       <div class="popup-box">
         <button id="agpCloseBtn" class="popup-close" aria-label="Close">×</button>
-        <h2>Auto-Generate Shapes</h2>
-        <p>Adjust values for random generation.</p>
+        <h2>Map Tools</h2>
+        <p>Simulation and continuous drawing tools.</p>
 
         <form id="agpForm">
           <div class="popup-form-row">
-            <label for="agpMaxPolygons" title="Max polygons to generate. (Limit: 200)">
-              Max Polygons
+            <label for="agpThickness" title="Thickness of the drawing stroke">
+              Stroke Thickness
             </label>
-            <input
-              type="number"
-              id="agpMaxPolygons"
-              min="1"
-              max="200"
-              value="50"
-            />
+            <input type="number" id="agpThickness" min="5" max="150" value="20" />
           </div>
 
-          <div class="popup-form-row">
-            <label
-              for="agpMinDistance"
-              title="Min distance between polygons. (Limit: 100)"
-            >
-              Min Distance
-            </label>
-            <input type="number" id="agpMinDistance" min="0" max="200" value="10" />
-          </div>
-
-          <div class="popup-form-row">
-            <label
-              for="agpMaxVertices"
-              title="Max vertices per polygon. (Range: 3-20)"
-            >
-              Max Vertices
-            </label>
-            <input type="number" id="agpMaxVertices" min="3" max="30" value="12" />
-          </div>
-
-          <div class="popup-form-row">
-            <label for="agpMinArea" title="Range: 1,000 - 50,000">Min Area</label>
-            <input
-              type="number"
-              id="agpMinArea"
-              min="200"
-              max="50000"
-              step="100"
-              value="8000"
-            />
-          </div>
-
-          <div class="popup-form-row">
-            <label for="agpMaxArea" title="Range: 1,000 - 50,000">Max Area</label>
-            <input
-              type="number"
-              id="agpMaxArea"
-              min="300"
-              max="50000"
-              step="100"
-              value="30000"
-            />
-          </div>
-
-          <div class="popup-form-row">
-            <label for="agpSkipChance" title="Chance to skip a segment (0.0 - 1.0)">
-              Skip Chance
-            </label>
-            <input
-              type="number"
-              id="agpSkipChance"
-              min="0"
-              max="1"
-              step="0.1"
-              value="0"
-            />
-          </div>
-
-          <div class="popup-form-row">
-            <label for="agpTunnelPadding" title="Padding around the player for the generated tunnel.">
-              Tunnel Padding
-            </label>
-            <input
-              type="number"
-              id="agpTunnelPadding"
-              min="10"
-              max="100"
-              value="30"
-            />
-          </div>
-
-    <label class="weights-label">Type Weights (Relative Chance)</label>
-          <div class="weights-row">
-            <div>
-              <label for="agpWeightNone">None</label>
-              <input type="number" id="agpWeightNone" min="0" value="1" />
-            </div>
-            <div>
-              <label for="agpWeightBouncy">Bouncy</label>
-              <input type="number" id="agpWeightBouncy" min="0" value="1" />
-            </div>
-            <div>
-              <label for="agpWeightDeath">Death</label>
-              <input type="number" id="agpWeightDeath" min="0" value="1" />
-            </div>
-          </div>
-
-          <!-- UPDATED ACTIONS SECTION -->
           <div class="popup-actions" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 1rem;">
-            <!-- Row 1: Path Generators -->
-            <button id="agpCustomRouteBtn" type="submit" class="btn" name="custom" title="Draw a path manually">
-              Custom Path
+            <button id="agpDrawBtn" type="button" class="btn" title="Toggle continuous drawing mode">
+              Toggle Drawing: OFF
             </button>
-            <button id="agpRandomRouteBtn" type="submit" class="btn" name="random" title="Generate a random path">
-              Random Path
-            </button>
-
-            <!-- Row 2: Shape & AI Generators -->
-            <button id="agpPlatformerBtn" type="button" class="btn" title="Generate random platformer shapes">
-              Random Shapes
-            </button>
-            <button id="agpAiMapBtn" type="button" class="btn" title="Generate map from random simulation">
-              Route-based Shapes
-            </button>
-
-            <!-- Row 3: Simulation -->
-            <button id="agpAiSimBtn" type="button" class="btn" style="grid-column: span 2; background-color: #444;" title="Start user controlled simulation">
+            <button id="agpAiSimBtn" type="button" class="btn" style="background-color: #444;" title="Start user controlled simulation">
               Toggle Simulation
             </button>
           </div>

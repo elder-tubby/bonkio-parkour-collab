@@ -4,7 +4,7 @@
 
 import UI from "./ui.js";
 import State from "./state.js";
-import * as Network from "./network.js"; 
+import * as Network from "./network.js";
 import {
   PhysicsPlayer,
   PhysicsMap,
@@ -14,9 +14,7 @@ import {
 
 window.PHYSICS_SETTINGS = PHYSICS_SETTINGS;
 
-import { generateTunnelFromPath } from "./sim-auto-generator.js";
-import { showToast, showToastWithButtons } from "./utils-client.js"; 
-import { startPathDrawing } from "./auto-generator-path.js";
+import { showToast, showToastWithButtons } from "./utils-client.js";
 
 // Store options locally when game starts
 let currentSimOptions = {};
@@ -29,8 +27,8 @@ let keysDown = { w: false, a: false, s: false, d: false };
 let animFrameId = null;
 let lastTime = 0;
 let accumulator = 0;
-let playerPath = []; 
-let touchedObjectIds = new Set(); 
+let playerPath = [];
+let touchedObjectIds = new Set();
 
 /**
  * The main game loop, driven by requestAnimationFrame.
@@ -66,10 +64,9 @@ function gameLoop(currentTime) {
 
     // Track touched objects
     if (result.touchedIds && result.touchedIds.length > 0) {
-      result.touchedIds.forEach(id => touchedObjectIds.add(id));
+      result.touchedIds.forEach((id) => touchedObjectIds.add(id));
     }
 
-    
     // Check Death Condition (result.died)
     if (result.died || player.pos.y >= 500) {
       player.respawn(map.spawn);
@@ -78,7 +75,7 @@ function gameLoop(currentTime) {
       touchedObjectIds.clear();
 
       console.log("[Sim] Player died. Path reset.");
-      State.set("generatedPath", playerPath); 
+      State.set("generatedPath", playerPath);
     }
 
     // Check Cap Zone
@@ -122,20 +119,47 @@ function gameLoop(currentTime) {
 
 function handleKeyDown(e) {
   switch (e.key.toLowerCase()) {
-    case "w": keysDown.w = true; e.preventDefault(); break;
-    case "a": keysDown.a = true; e.preventDefault(); break;
-    case "s": keysDown.s = true; e.preventDefault(); break;
-    case "d": keysDown.d = true; e.preventDefault(); break;
-    case "escape": stopGame(); e.preventDefault(); break;
+    case "w":
+      keysDown.w = true;
+      e.preventDefault();
+      break;
+    case "a":
+      keysDown.a = true;
+      e.preventDefault();
+      break;
+    case "s":
+      keysDown.s = true;
+      e.preventDefault();
+      break;
+    case "d":
+      keysDown.d = true;
+      e.preventDefault();
+      break;
+    case "escape":
+      stopGame();
+      e.preventDefault();
+      break;
   }
 }
 
 function handleKeyUp(e) {
   switch (e.key.toLowerCase()) {
-    case "w": keysDown.w = false; e.preventDefault(); break;
-    case "a": keysDown.a = false; e.preventDefault(); break;
-    case "s": keysDown.s = false; e.preventDefault(); break;
-    case "d": keysDown.d = false; e.preventDefault(); break;
+    case "w":
+      keysDown.w = false;
+      e.preventDefault();
+      break;
+    case "a":
+      keysDown.a = false;
+      e.preventDefault();
+      break;
+    case "s":
+      keysDown.s = false;
+      e.preventDefault();
+      break;
+    case "d":
+      keysDown.d = false;
+      e.preventDefault();
+      break;
   }
 }
 
@@ -145,8 +169,8 @@ function convertUntouchedToDeath() {
 
   // Identify Untouched IDs
   const untouchedIds = allObjects
-    .filter(obj => !touchedObjectIds.has(obj.id))
-    .map(obj => obj.id);
+    .filter((obj) => !touchedObjectIds.has(obj.id))
+    .map((obj) => obj.id);
 
   if (untouchedIds.length === 0) {
     showToast("All objects were touched! Nothing to change.", true);
@@ -155,8 +179,8 @@ function convertUntouchedToDeath() {
 
   let count = 0;
 
-  untouchedIds.forEach(id => {
-    const obj = allObjects.find(o => o.id === id);
+  untouchedIds.forEach((id) => {
+    const obj = allObjects.find((o) => o.id === id);
     if (!obj) return;
 
     let updatePayload = { id };
@@ -213,13 +237,15 @@ function stopGame(options = {}) {
     buttons.push({
       name: "Generate Tunnel",
       onClick: () => {
-        console.log(`[Path Recorder] Generating tunnel from ${capturedPath.length} points...`);
+        console.log(
+          `[Path Recorder] Generating tunnel from ${capturedPath.length} points...`,
+        );
         generateTunnelFromPath(capturedPath, State, {
           epsilon: 10,
           tunnelPadding: currentSimOptions.tunnelPadding,
         });
-        State.set("generatedPath", null); 
-      }
+        State.set("generatedPath", null);
+      },
     });
   }
 
@@ -234,8 +260,8 @@ function stopGame(options = {}) {
       name: `Kill Untouched (${untouchedCount})`,
       onClick: () => {
         convertUntouchedToDeath();
-        State.set("generatedPath", null); 
-      }
+        State.set("generatedPath", null);
+      },
     });
   }
 
@@ -261,7 +287,7 @@ export function startGame(options = {}) {
 
   currentSimOptions = options;
   if (isActive) {
-    stopGame(); 
+    stopGame();
     return;
   }
 
@@ -282,7 +308,7 @@ export function startGame(options = {}) {
   // Reset Data
   playerPath = [];
   playerPath.push({ x: player.pos.x, y: player.pos.y });
-  touchedObjectIds.clear(); 
+  touchedObjectIds.clear();
 
   isActive = true;
   accumulator = 0;
@@ -312,17 +338,20 @@ window.startMousePathGen = async function () {
 
     const filteredPath = [];
     if (pathPoints.length > 0) {
-      filteredPath.push(pathPoints[0]); 
+      filteredPath.push(pathPoints[0]);
       for (let i = 1; i < pathPoints.length; i++) {
         const lastPoint = filteredPath[filteredPath.length - 1];
         const currentPoint = pathPoints[i];
-        const dist = Math.hypot(currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y);
+        const dist = Math.hypot(
+          currentPoint.x - lastPoint.x,
+          currentPoint.y - lastPoint.y,
+        );
         if (dist >= minRecordDist) {
           filteredPath.push(currentPoint);
         }
       }
     }
-    pathPoints = filteredPath; 
+    pathPoints = filteredPath;
 
     const MIN_PATH_POINTS = 5;
     if (pathPoints.length < MIN_PATH_POINTS) {
